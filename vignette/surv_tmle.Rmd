@@ -1,0 +1,319 @@
+---
+title: "surv_tmle"
+author: "David Chen"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{surv_tmle}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+  
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(
+collapse = TRUE,
+comment = "#>", 
+cache.lazy = FALSE
+)
+
+library(novo.nordisk)
+library(SuperLearner)
+library(tidyverse)
+```
+
+## Non-Informative Censoring
+
+```{r constant hazard}
+# load mock LEADER data with simulated outcomes from a constant hazard, 
+# novo.nordisk:::constant_hazard_fn. data generating process is recorded in 
+# data-raw/simulate_data.R
+constant_hazard <- novo.nordisk::constant_hazard
+
+# target time: 104 weeks is the end of year 2
+targets <- 104
+
+# true values of estimands: fns of treated and control survivals at target time
+survivals <- attr(constant_hazard, "true_survivals")
+time_span <- as.numeric(names(survivals[[1]]))
+truths <- tibble(t = rep(time_span, 2),
+                 A = rep(names(survivals), each = length(time_span)),
+                 s = as.vector(do.call(c, survivals))) %>%
+  filter(t %in% targets) %>% group_by(t) %>%
+  pivot_wider(names_from = A, values_from = s, names_prefix = "s") %>%
+  mutate(RD = s0 - s1, RR = (1 - s1) / (1 - s0), SR = s1 / s0)
+truths %>% knitr::kable()
+```
+
+### Kaplan-Meier
+
+```{r constant hazard KM}
+results <- list(estimates = NULL)
+
+km_fit <- survival::survfit(survival::Surv(constant_hazard$time,
+                                           constant_hazard$event, 
+                                           type = "right") ~ ARM, 
+                            type = "kaplan-meier", data = constant_hazard)
+km_est <- summary(km_fit, times = targets)
+
+results$estimates <- tibble(t = round(km_est$time, 1)) %>%
+  mutate(A = rep(c(0, 1), each = length(t)/2),
+         s = km_est$surv, # s0, s1
+         se = km_est$std.err) %>%
+  pivot_wider(names_from = "A", values_from = c('s', 'se'), names_sep = "") %>% 
+  cbind(Estimator = "Kaplan-Meier", .)
+```
+
+### Hazard Estimation (SuperLearner) and G-Computation
+
+When hazards are small (~.001), as can happen with fine time scales or rare events, estimating hazards using the repeated measures pooled logistic regression approach can be unstable. One method to address this limitation, which we employ, is to coarsen the time scale for estimation, which also decreases computation time and needed resources. Anecdotally, we have had no issues estimating hazards greater than .005. A continuous time TMLE would bypass the instability and high memory usage, and such an implementation is being developed.
+
+```{r G-comp hazard estimation, cache=TRUE, warning=FALSE, message=FALSE, results='hide'}
+# specify SuperLearner libraries for estimating treatment propensity score, 
+# censoring and failure hazards
+
+sl_lib_g <- c("SL.glm")
+sl_lib_censor <- c("SL.glm")
+
+# use SuperLearner::create.Learner to alter default params of existing SL wrappers
+create.Learner(base_learner = "SL.hal9001", params = list(max_degree = 1))
+
+# Or create your own wrappers, like the following based on SL.glm. SL.misspec and
+# SL.correct are respectively the misspecified and correctly specified logistic
+# regressions used to generate estimator performance plots.
+
+SL.misspec <- novo.nordisk:::simple_misspec
+SL.correct <- novo.nordisk:::simple_correct
+
+# Specification of Superlearner library for estimating hazards. Exclude SL.xgboost
+# and SL.polymars for shorter compute time, use SL.misspec or SL.correct to see
+# g-computation/TMLE performance using misspecified or correctly specified models
+sl_lib_failure <- c("SL.mean", "SL.glm", "SL.glmnet", 
+                    # "SL.misspec", "SL.correct",
+                    "SL.xgboost", "SL.polymars")
+
+# create a baseline covariates data.frame
+W <- dplyr::select(constant_hazard, -c(time, ARM, event))
+
+# coarsen the time scale of the constant_hazard dataset
+timescale <- 4 # time coarsening factor
+constant_hazard <- constant_hazard %>% mutate(time = ceiling(time/timescale))
+
+# get SuperLearner estimate for failure hazard. Other objects are returned (see
+# init_sl_fit help, ?init_sl_fit), but the failure event hazard is what is 
+# needed for the surv_tmle function)
+sl_fit <- init_sl_fit(
+    T_tilde = constant_hazard$time, 
+    Delta = as.numeric(constant_hazard$event),
+    A = as.numeric(constant_hazard$ARM),
+    W = W,
+    t_max = max(constant_hazard$time),
+    sl_failure = sl_lib_failure,
+    sl_censoring = sl_lib_censor,
+    sl_treatment = sl_lib_g,
+    cv.Control = list(V = 10))
+```
+
+```{r G-comp results, results='hide'}
+# get G-computation survival estimates from the SL hazard estimates
+
+haz_sl <- list(sl_fit$density_failure_1$clone(),
+               sl_fit$density_failure_0$clone())
+haz_sl[[1]]$hazard_to_survival()
+haz_sl[[2]]$hazard_to_survival()
+names(haz_sl) <- c("A = 1", "A = 0")
+
+results$estimates <- data.frame(s1 = colMeans(haz_sl[[1]]$survival),
+                            s0 = colMeans(haz_sl[[2]]$survival)) %>% 
+  mutate(t = (1:length(s1))*timescale) %>% filter(t %in% targets) %>%
+  cbind(Estimator = "G-Comp: SuperLearner", .) %>% 
+  bind_rows(results$estimates, .)
+```
+
+### TMLE
+
+```{r tmle}
+# specify failure, censoring, propensity arguments for surv_tmle. If censoring 
+# is believed to be non-informative, can use Kaplan-Meier as a method to estimate
+# cumulative probability of censoring.
+SL_ftime <- sl_fit$models$Y
+glm_ctime <- "Kaplan-Meier"
+glm_trt <- paste0(colnames(W), collapse = " + ")
+
+# TMLE
+tmle_sl <- surv_tmle(ftime = constant_hazard$time, ftype = constant_hazard$event,
+                     targets = targets/timescale, trt = constant_hazard$ARM,
+                     t0 = max(targets/timescale), adjustVars = W,
+                     SL.ftime = SL_ftime,
+                     glm.trt = glm_trt, glm.ctime = glm_ctime,
+                     returnIC = T, returnModels = T,
+                     ftypeOfInterest = 1, trtOfInterest = c(1, 0),
+                     maxIter = 10, method = "hazard")
+```
+
+```{r tmle results}
+# TMLE survival estimates
+tmle_sl_out <- suppressWarnings(
+  t(1 - tmle_sl$est) %>% unname() %>% as_tibble() %>% 
+        cbind(Estimator = "TMLE: Hazard - SL", t = targets, .) %>%
+        rename("s0" = V1, "s1" = V2))
+results$estimates <- suppressWarnings(
+  matrix(sqrt(diag(tmle_sl$var)),
+             nrow = length(targets), byrow = T,
+             dimnames = list(NULL, c("se0", "se1"))) %>%
+        as.data.frame() %>% cbind(tmle_sl_out, .)) %>% 
+  bind_rows(results$estimates, .)
+
+# treated and control influence curves, for IC-based variance estimation
+results$tmleICsl <- tmle_sl$ic
+```
+
+```{r constant hazard estimates }
+results$estimates %>% 
+  mutate(RD = s0 - s1, RR = (1 - s1) / (1 - s0), SR = s1 / s0) %>% 
+  knitr::kable()
+```
+
+## Informative Censoring
+
+For the constant\_hazard data.frame the censoring event was generated from a Kaplan-Meier fit of the observed, non-informative censoring pattern in the mock LEADER data. To see the behaviour of estimators in the case of informative censoring, we analyze the informative\_censoring data.frame
+
+```{r informative censoring}
+# load mock LEADER data with simulated outcomes from a simple constant hazard 
+# and with informative censoring. The data-generating process is recorded in 
+# data-raw/simulate_data.R
+informative_censoring <- novo.nordisk::informative_censoring
+
+# target time: 104 weeks is the end of year 2
+targets <- 104
+
+# true values of estimands: fns of treated and control survivals at target time
+survivals <- attr(informative_censoring, "true_survivals")
+time_span <- as.numeric(names(survivals[[1]]))
+truths <- tibble(t = rep(time_span, 2),
+                 A = rep(names(survivals), each = length(time_span)),
+                 s = as.vector(do.call(c, survivals))) %>%
+  filter(t %in% targets) %>% group_by(t) %>%
+  pivot_wider(names_from = A, values_from = s, names_prefix = "s") %>%
+  mutate(RD = s0 - s1, RR = (1 - s1) / (1 - s0), SR = s1 / s0)
+truths %>% knitr::kable()
+```
+
+### Kaplan-Meier
+
+```{r KM informative censoring}
+results <- list(estimates = NULL)
+
+km_fit <- survival::survfit(survival::Surv(informative_censoring$time,
+                                           informative_censoring$event, 
+                                           type = "right") ~ ARM, 
+                            type = "kaplan-meier", data = informative_censoring)
+km_est <- summary(km_fit, times = targets)
+
+results$estimates <- tibble(t = round(km_est$time, 1)) %>%
+  mutate(A = rep(c(0, 1), each = length(t)/2),
+         s = km_est$surv, # s0, s1
+         se = km_est$std.err) %>%
+  pivot_wider(names_from = "A", values_from = c('s', 'se'), names_sep = "") %>% 
+  cbind(Estimator = "Kaplan-Meier", .)
+```
+
+### Hazard Estimation (SuperLearner) and G-Computation
+
+```{r hazard estimation informative censoring, cache=TRUE, warning=FALSE, message=FALSE, results='hide'}
+# specify SuperLearner libraries for treatment, censoring and failure hazards
+
+sl_lib_g <- c("SL.glm")
+sl_lib_censor <- c("SL.mean", "cens_glm", "SL.glmnet", "SL.rpartPrune")
+
+SL.misspec <- novo.nordisk:::simple_misspec
+SL.correct <- novo.nordisk:::correct_infcens
+cens_glm <- novo.nordisk:::cens_glm
+
+# Exclude SL.xgboost and SL.polymars for shorter compute time, use SL.misspec or 
+# SL.correct to see g-computation/TMLE performance using misspecified or correctly
+# specified models respectively
+sl_lib_failure <- c("SL.mean", "SL.glm", "SL.glmnet", 
+                    # "SL.misspec", "SL.correct",
+                    "SL.xgboost", "SL.polymars")
+
+# create a baseline covariates data.frame
+W <- dplyr::select(informative_censoring, -c(time, ARM, event))
+
+# coarsen the time scale of the informative_censoring dataset
+timescale <- 4 # time coarsening factor
+informative_censoring <- informative_censoring %>% 
+  mutate(time = ceiling(time/timescale))
+
+# get SuperLearner estimate for failure hazard and cumulative censoring 
+# probability. See ?init_sl_fit for other returned values, but the failure event
+# hazards and censoring probabilities are needed for the surv_tmle function)
+sl_fit <- init_sl_fit(
+    T_tilde = informative_censoring$time, 
+    Delta = as.numeric(informative_censoring$event),
+    A = as.numeric(informative_censoring$ARM),
+    W = W,
+    t_max = max(informative_censoring$time),
+    sl_failure = sl_lib_failure,
+    sl_censoring = sl_lib_censor,
+    sl_treatment = sl_lib_g,
+    cv.Control = list(V = 10))
+```
+
+```{r inf cens G-comp results, results='hide'}
+# get G-computation survival estimates from the SL hazard estimates
+
+haz_sl <- list(sl_fit$density_failure_1$clone(),
+               sl_fit$density_failure_0$clone())
+haz_sl[[1]]$hazard_to_survival()
+haz_sl[[2]]$hazard_to_survival()
+names(haz_sl) <- c("A = 1", "A = 0")
+
+results$estimates <- data.frame(s1 = colMeans(haz_sl[[1]]$survival),
+                            s0 = colMeans(haz_sl[[2]]$survival)) %>% 
+  mutate(t = (1:length(s1))*timescale) %>% filter(t %in% targets) %>%
+  cbind(Estimator = "G-Comp: SuperLearner", .) %>% 
+  bind_rows(results$estimates, .)
+```
+
+### TMLE
+
+```{r inf cens tmle}
+# specify failure, censoring, propensity arguments for surv_tmle
+SL_ftime <- sl_fit$models$Y
+sl_G_dC <- sl_fit$G_dC
+glm_trt <- paste0(colnames(W), collapse = " + ")
+
+# TMLE
+tmle_sl <- surv_tmle(ftime = informative_censoring$time, 
+                     ftype = informative_censoring$event,
+                     targets = targets/timescale, 
+                     trt = informative_censoring$ARM,
+                     t0 = max(targets/timescale), adjustVars = W,
+                     SL.ftime = SL_ftime, SL.ctime = sl_G_dC,
+                     glm.trt = glm_trt, 
+                     returnIC = T, returnModels = T,
+                     ftypeOfInterest = 1, trtOfInterest = c(1, 0),
+                     maxIter = 10, method = "hazard")
+```
+
+```{r inf cens tmle results}
+# TMLE survival estimates
+tmle_sl_out <- suppressWarnings(
+  t(1 - tmle_sl$est) %>% unname() %>% as_tibble() %>% 
+        cbind(Estimator = "TMLE: Hazard - SL", t = targets, .) %>%
+        rename("s0" = V1, "s1" = V2))
+results$estimates <- suppressWarnings(
+  matrix(sqrt(diag(tmle_sl$var)),
+             nrow = length(targets), byrow = T,
+             dimnames = list(NULL, c("se0", "se1"))) %>%
+        as.data.frame() %>% cbind(tmle_sl_out, .)) %>% 
+  bind_rows(results$estimates, .)
+
+# treated and control influence curves, for IC-based variance estimation
+results$tmleICsl <- tmle_sl$ic
+```
+
+```{r informative censoring estimates}
+results$estimates %>% 
+  mutate(RD = s0 - s1, RR = (1 - s1) / (1 - s0), SR = s1 / s0) %>% 
+  knitr::kable()
+```
