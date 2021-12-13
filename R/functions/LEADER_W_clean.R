@@ -43,20 +43,27 @@ W <- W %>%
                                 T ~ RETINSEV),
            RETINSEV = factor(RETINSEV, ordered = T,
                              levels = c("NA", "no retinopathy", "non-proliferative", "proliferative")),
-           NYHACLAS = case_when(NYHACLAS == "" ~ "NA",
-                                T ~ NYHACLAS),
-           NYHACLAS = factor(NYHACLAS, ordered = T,
+           NYHACLAS = factor(case_when(NYHACLAS == "" ~ "NA",
+                                T ~ NYHACLAS), ordered = T,
                              levels = c("NA", "NYHA CLASS I", "NYHA CLASS II", "NYHA CLASS III")))
 
 # make logical variables logicals
 W <- W %>%
-    mutate_if(~mean(unique(.) %in% c("Y", "N")) == 1, ~case_when(. == "Y" ~ T,
-                                                                 T ~ F)) %>%
-    mutate(SEX = (SEX == "M"),
-           ARM = (ARM == "Liraglutide"),
-           ETHNIC = ETHNIC == "HISPANIC OR LATINO") %>%
-    rename(MALE = SEX,
-           HISPANIC = ETHNIC)
+    dplyr::mutate_if(~mean(unique(.) %in% c("Y", "N", "y", "n", "", NA)) == 1,
+                     ~case_when(. %in% c("Y", "y") ~ TRUE,
+                                . %in% c("N", "n") ~ FALSE,
+                                T ~ NA)) %>%
+    mutate(RACE = as.factor(case_when(RACE == "BLACK OR AFRICAN AMERICAN" ~ "BLACK",
+                                      RACE %in% c("AMERICAN INDIAN OR ALASKA NATIVE",
+                                                  "NATIVE HAWAIIAN OR OTHER PACIFIC ISLANDER",
+                                                  "OTHER") ~ "OTHER",
+                                      T ~ RACE)),
+           SEX = as.factor(SEX),
+           ARM = as.numeric(ARM == "Liraglutide")# ,
+           #ETHNIC = ETHNIC == "HISPANIC OR LATINO"
+    ) # %>%
+# rename(MALE = SEX,
+#        HISPANIC = ETHNIC)
 
 # make factor variables factors, make SMOKER and renal disease cols ordered
 W <- W %>% mutate(SMOKER = factor(SMOKER, ordered = T,
@@ -67,7 +74,6 @@ W <- W %>% mutate(SMOKER = factor(SMOKER, ordered = T,
                       levels = c("Normal (EGFR>=90)", "Mild (EGFR<90)",
                                  "Moderate (EGFR<60)", "Severe (EGFR<30)"))) %>%
     mutate_if(is.character, as_factor)
-
 
 # imputation --------------------------------------------------------------
 
