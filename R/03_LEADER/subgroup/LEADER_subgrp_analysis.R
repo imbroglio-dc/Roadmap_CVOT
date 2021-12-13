@@ -26,56 +26,45 @@ source(file = here("R/functions/LEADER_W_clean_new.R"))
 obs <- dplyr::select(outcomes, USUBJID, AVAL_MACE, EVENT_MACE) %>%
     left_join(., W_imputed) %>%
     rename(TIME = AVAL_MACE, EVENT = EVENT_MACE) %>%
-    dplyr::select(-USUBJID) %>%
+    # dplyr::select(-USUBJID) %>%
     mutate(TIME = ceiling(TIME / timescale))
 
 # subgroup analysis -------------------------------------------------------
 
-subgroups <- obs %>%
-    transmute(Sex = as.factor(case_when(SEX == "M" ~ "Male",
-                                        SEX == "F" ~ "Female")),
-              Age = factor(case_when(AGE.60PLUS.imp == T ~ ">=60 yr",
-                                     AGE.60PLUS == F ~ "<60 yr",
-                                     AGE.60PLUS == T ~ ">=60 yr")),
-              Region = as_factor(
-                  case_when(ISREGION == "Western Europe" ~ "Europe",
-                            ISREGION == "Eastern Europe" ~ "Europe",
-                            T ~ as.character(ISREGION))),
-              Race = as_factor(RACE),
-              EthnicGroup = as_factor(
-                  case_when(ETHNIC == "HISPANIC OR LATINO" ~ "Hispanic",
-                            ETHNIC == "NOT HISPANIC OR LATINO" ~ "Non-Hispanic")),
-              BMI = factor(case_when(BMI.30PLUS.imp == T ~ "NA",
-                                     BMI.30PLUS == T ~ ">30",
-                                     BMI.30PLUS == F ~ "<=30"),
-                           exclude = "NA"),
-              HbA1c = as_factor(case_when(HBA1C.8.3LESS == T ~ "<=8.3%",
-                                          HBA1C.8.3LESS == F ~ ">8.3%")),
-              diabDur = factor(case_when(DDUR.12PLUS.imp == T ~ "NA",
-                                         DDUR.12PLUS == T ~ ">11 yrs",
-                                         DDUR.12PLUS == F ~ "<=11 yrs"),
-                               exclude = "NA"),
-              CVDRisk = as_factor(
-                  case_when(CV.HIRISK == T ~ ">=50 yr + established CVD",
-                            CV.HIRISK == F ~ ">=60 yr + risk factors for CVD")),
-              CHF = as_factor(
-                  case_when(CHFFL == T ~ "Yes",
-                            CHFFL == F ~ "No")),
-              antiDiabTherapy = factor(ANTDBFL,
-                                       levels = c("1 OAD", "> 1 OADs", "Insulin+OAD(s)",
-                                                  "Insulin-OAD", "None"),
-                                       labels = c("1 Oral antidiabetic agent",
-                                                  ">1 Oral antidiabetic agent",
-                                                  "Insulin with oral antidiabetic agent",
-                                                  "Insulin without oral antidiabetic agent",
-                                                  "None")),
-              renDis_SevMod = factor(
-                  case_when(RENFSEV.MDRD.BL %in% c("Severe (EGFR<30)",
-                                                   "Moderate (EGFR<60)") ~ "<60 ml/min/1.73m^2",
-                            T ~ ">=60 ml/min/1.73m^2")),
-              renDis_Sev = factor(
-                  case_when(RENFSEV.MDRD.BL %in% c("Severe (EGFR<30)") ~ "<30 ml/min/1.73m^2",
-                            T ~ ">=30 ml/min/1.73m^2"))) %>%
+subgroups <- transmute(obs,
+                       Sex = as.factor(case_when(MALE ~ "Male",
+                                                 T ~ "Female")),
+                       Age = as.factor(case_when(AGE >= 60 ~ ">=60 yr",
+                                                 T ~ "<60 yr")),
+                       Region = as_factor(
+                           case_when(ISREGION == "Western Europe" ~ "Europe",
+                                     ISREGION == "Eastern Europe" ~ "Europe",
+                                     T ~ as.character(ISREGION))),
+                       Race = as_factor(
+                           case_when(RACE == "WHITE" ~ "WHITE",
+                                     RACE == "BLACK OR AFRICAN AMERICAN" ~ "BLACK",
+                                     RACE == 'ASIAN' ~ "ASIAN",
+                                     T ~ "OTHER")),
+                       EthnicGroup = as_factor(case_when(HISPANIC ~ "Hispanic",
+                                                         T ~ "Non Hispanic")),
+                       BMI = as_factor(case_when(BMIBL <= 30 ~ "<=30",
+                                                 T ~ ">30")),
+                       HbA1c = as.factor(case_when(HBA1CBL > 8.3 ~ ">8.3",
+                                                   T ~ "<=8.3")),
+                       CVDRisk = as.factor(
+                           case_when(CVRISK ~ ">=60 yr + risk factors for CVD",
+                                     T ~ ">=50 yr + established CVD")),
+                       CHF = CHFFL,
+                       antiDiabTherapy = ANTDBFL,
+                       'diabDur' = as.factor(case_when(DIABDUR > 11 ~ ">11 yrs",
+                                                       T ~ "<=11 yrs")),
+                       renDis_SevMod = (RENFSEV %in% c("Moderate (EGFR<60)",
+                                                       "Severe (EGFR<30)")),
+                       renDis_SevMod = as.factor(case_when(renDis_SevMod ~ "<60",
+                                                           T ~ ">=60")),
+                       renDis_Sev = RENFSEV == "Severe (EGFR<30)",
+                       renDis_Sev = as.factor(case_when(renDis_Sev ~ "<30",
+                                                        T ~ ">=30"))) %>%
     as_tibble()
 
 # superlearner libraries
@@ -146,8 +135,12 @@ leader_cens_glmnet <- function (Y, X, newX, family, obsWeights, id, alpha = 1, n
 environment(leader_cens_glmnet) <- asNamespace("SuperLearner")
 
 screen_cor <- create.Learner(base_learner = "screen.corRank",
-                             tune = list("rank" = c(10, 15, 25, 40, 60)),
+                             tune = list("rank" = c(15, 40)),
                              detailed_names = T)
+
+small_screen <- create.Learner(base_learner = "screen.corRank",
+                               tune = list("rank" = c(10, 15)),
+                               detailed_names = T)
 
 glmnets <- create.Learner(base_learner = "SL.glmnet",
                           tune = list("alpha" = c(0, 0.5, 1)),
@@ -159,16 +152,14 @@ cens_glmnets <- create.Learner(base_learner = "leader_cens_glmnet",
 
 # estimation ----------------------------------------------------------------------------------
 
-if (!file.exists(here(paste0("R/final_cvot/03_LEADER/subgroup/output/",
-                             "LEADER-subgrp-estimates-fullcov.RDS")))) {
+if (!file.exists(here("R/final_cvot/03_LEADER/subgroup/LEADER-subgrp-estimates.RDS"))) {
 
     iter <- do.call(rbind, lapply(1:ncol(subgroups), function(j) {
-        levels <- levels(dplyr::pull(subgroups, colnames(subgroups)[j]))
+        levels <- unique(dplyr::pull(subgroups, colnames(subgroups)[j]))
         index <- t(sapply(1:length(levels), function(i) c(j, i)))
         rownames(index) <- paste0(colnames(subgroups)[j], ": ", levels)
         return(index)
-    }))[c(1:4, 8, 5, 7, 6, 9:10, 12, 11, 14, 13, 15:16, 18, 17,
-          19:20, 22, 21, 24, 23, 25:33), ]
+    }))
     colnames(iter) <- c("j", "i")
 
     subgroup_results <- vector("list", length = nrow(iter))
@@ -188,7 +179,15 @@ if (!file.exists(here(paste0("R/final_cvot/03_LEADER/subgroup/output/",
                 subgroup <- dplyr::pull(subgroups, colnames(subgroups)[j])
                 levels <- unique(subgroup)
 
-                subgroup_obs <- obs[subgroup %in% levels[i], ] %>%
+                if (subgroup == "BMI.30PLUS") {
+
+                } else if (subgroup == "DDUR.12PLUS") {
+
+                } else if (subgroup == ) {
+
+                }
+
+                subgroup_obs <- obs_subgrp[subgroup == levels[i], ] %>%
                     select_if(~length(unique(.)) > 1)
 
                 subgroup_W <- dplyr::select(subgroup_obs, -c(TIME, EVENT, ARM))
@@ -219,7 +218,7 @@ if (!file.exists(here(paste0("R/final_cvot/03_LEADER/subgroup/output/",
                                                            type = "right") ~ ARM,
                                             type = "kaplan-meier",
                                             data = subgroup_obs)
-                km_est <- summary(km_fit, times = targets)
+                km_est <- summary(km_fit, times = times)
 
                 results$estimates <- tibble(time = round(km_est$time, 1)) %>%
                     mutate(A = rep(c(0, 1), each = length(time)/2),
@@ -231,14 +230,11 @@ if (!file.exists(here(paste0("R/final_cvot/03_LEADER/subgroup/output/",
 
 
                 # TMLE setup ----------------------------------------------------------
+                screeners <- c(screen_cor$names, "All") #, screen.rf$names)
                 if (nrow(subgroup_obs) <= 500) {
-                    screeners <- screen_cor$names[1:2] # 10 or 15 vars
-                } else if (nrow(subgroup_obs) <= 1000) {
-                    screeners <- screen_cor$names[2:4] # 15, 25, or 40 vars
+                    screeners <- small_screen$names
                 } else if (nrow(subgroup_obs) <= 1500) {
-                    screeners <- screen_cor$names[3:5] # 25, 40, or 60 vars
-                } else {
-                    screeners <- c(screen_cor$names[4:5], "All") # 40, 60, or all vars
+                    screeners <- c(screen_cor$names)
                 }
 
                 sl_trt <- expand.grid(c("SL.glm", glmnets$names, "SL.bayesglm"), "All")
@@ -262,7 +258,7 @@ if (!file.exists(here(paste0("R/final_cvot/03_LEADER/subgroup/output/",
                         Delta = as.numeric(subgroup_obs$EVENT),
                         A = as.numeric(subgroup_obs$ARM),
                         W = subgroup_W,
-                        t_max = max(targets),
+                        t_max = max(times),
                         sl_failure = sl_events,
                         sl_censoring = sl_censor,
                         sl_treatment = "SL.mean",
@@ -277,13 +273,13 @@ if (!file.exists(here(paste0("R/final_cvot/03_LEADER/subgroup/output/",
 
                 results$estimates <- data.frame(s1 = colMeans(haz_sl[[1]]$survival),
                                                 s0 = colMeans(haz_sl[[2]]$survival)) %>%
-                    mutate(time = 1:length(s1)) %>% filter(time %in% targets) %>%
+                    mutate(time = 1:length(s1)) %>% filter(time %in% times) %>%
                     cbind(Estimator = "G-Comp", .) %>%
                     bind_rows(results$estimates, .)
 
                 SL_ftime <- sl_fit$models$Y
                 sl_G_dC <- sl_fit$G_dC
-                saveRDS(sl_fit, file = paste0("R/final_cvot/03_LEADER/subgroup/sl_fits/",
+                saveRDS(sl_fit, file = paste0("R/final_cvot/03_LEADER/subgroup/",
                                               colnames(subgroups)[j], "-",
                                               i, "_fits.RDS"))
                 rm(sl_fit)
@@ -293,9 +289,9 @@ if (!file.exists(here(paste0("R/final_cvot/03_LEADER/subgroup/output/",
                 suppressWarnings(suppressMessages(
                     tmle_sl <- surv_tmle(ftime = subgroup_obs$TIME,
                                          ftype = as.numeric(subgroup_obs$EVENT),
-                                         targets = targets,
+                                         targets = times,
                                          trt = as.numeric(subgroup_obs$ARM),
-                                         t0 = max(targets), adjustVars = subgroup_W,
+                                         t0 = max(times), adjustVars = subgroup_W,
                                          SL.ftime = SL_ftime, SL.ctime = sl_G_dC,
                                          SL.trt = sl_trt,
                                          returnIC = T, returnModels = F,
@@ -305,11 +301,11 @@ if (!file.exists(here(paste0("R/final_cvot/03_LEADER/subgroup/output/",
 
                 tmle_sl_out <- suppressWarnings(
                     t(1 - tmle_sl$est) %>% unname() %>% as_tibble() %>%
-                        cbind(Estimator = "TMLE", time = targets, .) %>%
+                        cbind(Estimator = "TMLE", time = times, .) %>%
                         rename("s0" = V1, "s1" = V2))
                 results$estimates <- suppressWarnings(
                     matrix(sqrt(diag(tmle_sl$var)),
-                           nrow = length(targets), byrow = F,
+                           nrow = length(times), byrow = F,
                            dimnames = list(NULL, c("se0", "se1"))) %>%
                         as.data.frame() %>% cbind(tmle_sl_out, .)) %>%
                     bind_rows(results$estimates, .)
@@ -335,7 +331,7 @@ if (!file.exists(here(paste0("R/final_cvot/03_LEADER/subgroup/output/",
                                                ic[c(i, i+(nrow(ic)/2)), ]))
                            })) %>% apply(., 2,
                                          function(j) sqrt(j / ncol(ic))) %>%
-                        as_tibble() %>% bind_cols(t = targets, .) %>%
+                        as_tibble() %>% bind_cols(t = times, .) %>%
                         pivot_longer(-`t`, names_to = c("Estimand", "tmp"),
                                      names_sep = "_",
                                      values_to = "se") %>%
@@ -344,27 +340,25 @@ if (!file.exists(here(paste0("R/final_cvot/03_LEADER/subgroup/output/",
 
                 results$tmle_fit <- tmle_sl
 
-                results$estimates <- cbind(results$estimates,
-                                           "n" = nrow(subgroup_obs))
 
                 # Output results ----------------------------------------------
                 return(results)
             }
     }
     saveRDS(subgroup_results,
-            file = here(paste0("R/final_cvot/03_LEADER/subgroup/output/",
+            file = here(paste0("R/final_cvot/03_LEADER/subgroup/",
                                "LEADER-subgrp-estimates-fullcov.RDS")),
             compress = F)
 } else {
     subgroup_results <-
-        read_rds(here(paste0("R/final_cvot/03_LEADER/subgroup/output/",
+        read_rds(here(paste0("R/final_cvot/03_LEADER/subgroup/",
                              "LEADER-subgrp-estimates-fullcov.RDS")))
 }
 
 
 # subgroup plots -------------------------------------------------------------------
 
-if (!file.exists(here("R/final_cvot/03_LEADER/subgroup/output/LEADER-subgrp-est-tbl.csv"))) {
+if (!file.exists(here("R/final_cvot/03_LEADER/subgroup/LEADER-subgrp-estimates.RDS"))) {
     result_tbl <- lapply(1:length(subgroup_results), function(k) {
         subgroup <- dplyr::pull(subgroups, colnames(subgroups)[iter[k, 1]])
         subgrp <- paste0(colnames(subgroups)[iter[k, 1]], ": ",
@@ -401,9 +395,9 @@ if (!file.exists(here("R/final_cvot/03_LEADER/subgroup/output/LEADER-subgrp-est-
                                    T ~ 1)) %>%
         dplyr::select(subgroup, Estimator, `time`, Estimand, Estimate, se, Eff, rel_CI) %>%
         mutate(`time` = as.character(`time` * timescale), CI_width = 2*1.96*se)
-    write_csv(result_tbl, here("R/final_cvot/03_LEADER/subgroup/output/LEADER-subgrp-est-tbl.csv"))
+    saveRDS(object = result_tbl, here("R/final_cvot/03_LEADER/subgroup/LEADER-subgrp-result_tbl.RDS"))
 } else {
-    result_tbl <- read_csv(here("R/final_cvot/03_LEADER/subgroup/output/LEADER-subgrp-est-tbl.csv"))
+    result_tbl <- read_rds(here("R/final_cvot/03_LEADER/subgroup/LEADER-subgrp-result_tbl.RDS"))
 }
 
 result_plot <- result_tbl %>% filter(Estimand  == "RR") %>%
@@ -420,7 +414,7 @@ result_plot <- result_tbl %>% filter(Estimand  == "RR") %>%
                data = filter(result_tbl, Estimand  == "RR", Estimator == "TMLE"),
                colour = 'black')
 
-ggsave(filename = "leader.png", path = "R/final_cvot/03_LEADER/subgroup/output",
+ggsave(filename = "leader.png", path = "R/final_cvot/03_LEADER/subgroup/",
        device = "png", width = 9, height = 6, units = "in", result_plot)
 
 # Year 4 RR  ----------------------------------------------------------------------------------

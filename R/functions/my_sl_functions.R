@@ -97,31 +97,6 @@ my_init_sl_fit <- function (T_tilde, Delta, A, W, t_max, sl_failure = c("SL.glm"
     suppressWarnings(if (all(dataList[[1]] == "convergence failure")) {
         return("estimation convergence failure")
     })
-
-    # del_fitLibrary <- function(x) {
-    #     if ("env" %in% names(x)) {
-    #         x$fitLibrary <- NULL
-    #         x$env <- NULL
-    #     } else {
-    #         for (i in seq_along(x)) {
-    #             value <- x[[i]]
-    #             if (class(x[[i]]) %in% c("survtmle" ,"SuperLearner", "list")) {
-    #                 if ("env" %in% names(x[[i]])) {
-    #                     x[[i]]$fitLibrary <- NULL
-    #                     x[[i]]$env <- NULL
-    #                 } else {
-    #                     x[[i]] <- del_fitLibrary(value)
-    #                 }
-    #             }
-    #         }
-    #     }
-    #
-    #     x
-    # }
-    # ftimeMod <- del_fitLibrary(ftimeMod)
-    # ctimeMod <- del_fitLibrary(ctimeMod)
-    # trtMod <- del_fitLibrary(trtMod)
-
     g_1 <- dat$g_1
     g_0 <- dat$g_0
     d1 <- dataList$`1`
