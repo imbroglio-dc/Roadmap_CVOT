@@ -179,14 +179,6 @@ if (!file.exists(here("R/final_cvot/03_LEADER/subgroup/LEADER-subgrp-estimates.R
                 subgroup <- dplyr::pull(subgroups, colnames(subgroups)[j])
                 levels <- unique(subgroup)
 
-                if (subgroup == "BMI.30PLUS") {
-
-                } else if (subgroup == "DDUR.12PLUS") {
-
-                } else if (subgroup == ) {
-
-                }
-
                 subgroup_obs <- obs_subgrp[subgroup == levels[i], ] %>%
                     select_if(~length(unique(.)) > 1)
 

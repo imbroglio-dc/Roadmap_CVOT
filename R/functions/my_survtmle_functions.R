@@ -6,7 +6,7 @@ surv_tmle <- function (ftime, ftype, trt, adjustVars, t0 = max(ftime[ftype > 0])
                        glm.ctime = NULL, glm.trt = NULL, returnIC = TRUE, maxIter = 10,
                        returnModels = TRUE, ftypeOfInterest = unique(ftype[ftype != 0]),
                        trtOfInterest = unique(trt), method = "hazard", bounds = NULL,
-                       verbose = FALSE, tol = 1/(sqrt(length(ftime))),
+                       verbose = FALSE, tol = 1/(log(length(ftime))*sqrt(length(ftime))),
                        Gcomp = FALSE, gtol = 0.001, targets = max(ftime[ftype > 0]),
                        tvcov_fun = NULL)
 {
@@ -64,7 +64,7 @@ haz_tmle <- function (ftime, ftype, trt, targets = max(ftime[ftype > 0]),
                       returnModels = FALSE, trtOfInterest = unique(trt),
                       ftypeOfInterest = unique(ftype[ftype != 0]),
                       bounds = NULL, verbose = FALSE, maxIter = 100,
-                      tol = 1/(sqrt(length(ftime))),
+                      tol = 1/(log(length(ftime))*sqrt(length(ftime))),
                       gtol = 0.001, tvcov_fun = NULL, ...)
 {
     n <- length(ftime)
