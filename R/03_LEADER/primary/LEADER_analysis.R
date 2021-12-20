@@ -164,8 +164,8 @@ sl_lib_failure <- lapply(1:nrow(sl_lib_failure),
 # See novo.nordisk:::init_sl_fit for other returned values, but the failure event
 # hazards and censoring probabilities are needed for the surv_tmle function)
 set.seed(256)
-if (file.exists(here("R/final_cvot/03_LEADER/primary/sl_fit-fullcov.RDS"))) {
-    sl_fit <- readRDS(here("R/final_cvot/03_LEADER/primary/sl_fit-fullcov.RDS"))
+if (file.exists(here("R/03_LEADER/primary/sl_fit-fullcov.RDS"))) {
+    sl_fit <- readRDS(here("R/03_LEADER/primary/sl_fit-fullcov.RDS"))
 } else {
     sl_fit <- my_init_sl_fit(
         T_tilde = obs$TIME,
@@ -182,7 +182,7 @@ if (file.exists(here("R/final_cvot/03_LEADER/primary/sl_fit-fullcov.RDS"))) {
     sl_fit$models$C$env <- NULL
     sl_fit$models$Y$J1$env <- NULL
 
-    saveRDS(sl_fit, here("R/final_cvot/03_LEADER/primary/sl_fit-fullcov.RDS"), compress = F)
+    saveRDS(sl_fit, here("R/03_LEADER/primary/sl_fit-fullcov.RDS"), compress = F)
 }
 
 haz_sl <- list(sl_fit$density_failure_1$clone(),
@@ -256,7 +256,7 @@ rm(tmle_sl)
 
 # plot results ------------------------------------------------------------
 
-if (!file.exists(here("R/final_cvot/03_LEADER/primary/LEADER-estimates-tbl-fullcov.RDS"))) {
+if (!file.exists(here("R/03_LEADER/primary/LEADER-estimates-tbl-fullcov.RDS"))) {
     result_tbl <- results$estimates %>%
         mutate(RD = (1 - s1) - (1 - s0),
                RR = (1 - s1) / (1 - s0),
@@ -285,9 +285,9 @@ if (!file.exists(here("R/final_cvot/03_LEADER/primary/LEADER-estimates-tbl-fullc
                                T ~ 1),
                t = t * timescale) %>%
         dplyr::select(Estimator, t, Estimand, Estimate, se, Eff)
-    saveRDS(object = result_tbl, here("R/final_cvot/03_LEADER/primary/LEADER-estimates-tbl-fullcov.RDS"))
+    saveRDS(object = result_tbl, here("R/03_LEADER/primary/LEADER-estimates-tbl-fullcov.RDS"))
 } else {
-    result_tbl <- readRDS(here("R/final_cvot/03_LEADER/primary/LEADER-estimates-tbl-fullcov.RDS"))
+    result_tbl <- readRDS(here("R/03_LEADER/primary/LEADER-estimates-tbl-fullcov.RDS"))
 }
 
 # relative risk plot --------------------------------------------------------------------------
@@ -304,7 +304,7 @@ result_plot <- result_tbl %>% filter(Estimand == "RR") %>%
                    label = paste0("Eff = ", round(Eff, 2)*100, "%")),
                data = filter(result_tbl, Estimand  == "RR", Estimator == "TMLE"),
                colour = 'black')
-ggsave(filename = "leader.png", path = "R/final_cvot/03_LEADER/primary/",
+ggsave(filename = "leader.png", path = "R/03_LEADER/primary/",
        plot = result_plot, device = "png", width = 9, height = 6, units = "in")
 
 
@@ -355,7 +355,7 @@ res_plot <- res_plot %>% mutate(Estimator = case_when(Estimator == "G-Comp" ~ "G
     geom_point(position = position_dodge(.5)) + theme_minimal() +
     labs(x = "Months", y = "Relative Risk") #, title = "LEADER re-Analysis"
 
-# ggsave(filename = "leader.png", path = "R/final_cvot/03_LEADER/",
+# ggsave(filename = "leader.png", path = "R/03_LEADER/",
 #        device = "png", width = 9, height = 6, units = "in", result_plot)
 
 

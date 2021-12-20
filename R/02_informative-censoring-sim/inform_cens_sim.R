@@ -144,7 +144,7 @@ ic_plot <- tibble(t = rep(time_span, 2),
           axis.text = element_text(size = 16),
           legend.text = element_text(size = 14))
 ggsave(ic_plot, filename = "ic-data.png", device = "png",
-       path = here("R/final_cvot/02_informative-censoring-sim/"),
+       path = here("R/02_informative-censoring-sim/"),
        width = 11, height = 6, units = "in")
 
 
@@ -197,8 +197,8 @@ sim_data <- foreach(b = 1:B,
     }
 stopCluster(cl)
 rm(cl)
-saveRDS(sim_data, file = here("R/final_cvot/02_informative-censoring-sim/inf-cens-data.RDS"))
-sim_data <- read_rds(here("R/final_cvot/02_informative-censoring-sim/inf-cens-data.RDS"))
+saveRDS(sim_data, file = here("R/02_informative-censoring-sim/inf-cens-data.RDS"))
+# sim_data <- read_rds(here("R/02_informative-censoring-sim/inf-cens-data.RDS"))
 
 # Estimation --------------------------------------------------------------
 
@@ -475,8 +475,8 @@ system.time(
 stopCluster(cl)
 rm(cl)
 
-saveRDS(sim_estimates, here("R/final_cvot/02_informative-censoring-sim/inf-cens-estimates.RDS"))
-sim_estimates <- read_rds(here("R/final_cvot/02_informative-censoring-sim/inf-cens-estimates.RDS"))
+saveRDS(sim_estimates, here("R/02_informative-censoring-sim/inf-cens-estimates.RDS"))
+# sim_estimates <- read_rds(here("R/02_informative-censoring-sim/inf-cens-estimates.RDS"))
 
 
 # estimator performance ----------------------------------------------------------
@@ -570,7 +570,7 @@ coverage <- estimates %>%
     summarise_all(mean) %>% ungroup  # %>%
 # mutate(Hazard = case_when(as.character(Estimator) == "Kaplan-Meier" ~ "NA",
 #                           T ~ as.character(Hazard))) %>% distinct()
-saveRDS(sim_estimates, here("R/final_cvot/02_informative-censoring-sim/inf-cens-coverage.RDS"))
+saveRDS(sim_estimates, here("R/02_informative-censoring-sim/inf-cens-coverage.RDS"))
 
 # plots -------------------------------------------------------------------
 
@@ -581,7 +581,7 @@ plot_df <- estimates %>%
                              labels = c("Control Survival", "Treated Survival",
                                         "Risk Difference", "Relative Risk",
                                         "Relative Survival")))
-saveRDS(plot_df, here("R/final_cvot/02_informative-censoring-sim/inf-cens-plot_df.RDS"))
+saveRDS(plot_df, here("R/02_informative-censoring-sim/inf-cens-plot_df.RDS"))
 
 plot_df %>% ggplot() +
     geom_boxplot(aes(y = estimate, x = Estimator), outlier.shape = NA) +
@@ -597,7 +597,7 @@ plot_df %>% ggplot() +
                                     ~quantile(., .95, na.rm = T)),
                size = 2.5, na.rm = T)
 ggsave(filename = "inf-cens-perf-plot.png",
-       path = here("R/final_cvot/02_informative-censoring-sim/"),
+       path = here("R/02_informative-censoring-sim/"),
        device = "png", width = 16, height = 9, units = "in")
 
 

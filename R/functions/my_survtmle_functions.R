@@ -6,7 +6,7 @@ surv_tmle <- function (ftime, ftype, trt, adjustVars, t0 = max(ftime[ftype > 0])
                        glm.ctime = NULL, glm.trt = NULL, returnIC = TRUE, maxIter = 10,
                        returnModels = TRUE, ftypeOfInterest = unique(ftype[ftype != 0]),
                        trtOfInterest = unique(trt), method = "hazard", bounds = NULL,
-                       verbose = FALSE, tol = 1/(sqrt(length(ftime))),
+                       verbose = FALSE, tol = 1/(log(length(ftime))*sqrt(length(ftime))),
                        Gcomp = FALSE, gtol = 0.001, targets = max(ftime[ftype > 0]),
                        tvcov_fun = NULL)
 {
@@ -64,7 +64,7 @@ haz_tmle <- function (ftime, ftype, trt, targets = max(ftime[ftype > 0]),
                       returnModels = FALSE, trtOfInterest = unique(trt),
                       ftypeOfInterest = unique(ftype[ftype != 0]),
                       bounds = NULL, verbose = FALSE, maxIter = 100,
-                      tol = 1/(sqrt(length(ftime))),
+                      tol = 1/(log(length(ftime))*sqrt(length(ftime))),
                       gtol = 0.001, tvcov_fun = NULL, ...)
 {
     n <- length(ftime)
@@ -187,31 +187,35 @@ haz_tmle <- function (ftime, ftype, trt, targets = max(ftime[ftype > 0]),
     }
     row.names(est) <- rowNames
     var <- crossprod(as.matrix(infCurves))/n^2
-    if (!returnModels) {
-        del_fitLibrary <- function(x) {
-            if ("env" %in% names(x)) {
+
+    del_fitLibrary <- function(x, returnModels) {
+        if ("env" %in% names(x)) {
+            if (!returnModels) {
                 x$fitLibrary <- NULL
-                x$env <- NULL
-            } else {
-                for (i in seq_along(x)) {
-                    value <- x[[i]]
-                    if (class(x[[i]]) %in% c("survtmle" ,"SuperLearner", "list")) {
-                        if ("env" %in% names(x[[i]])) {
+            }
+            x$env <- NULL
+        } else {
+            for (i in seq_along(x)) {
+                value <- x[[i]]
+                if (class(x[[i]]) %in% c("survtmle" ,"SuperLearner", "list")) {
+                    if ("env" %in% names(x[[i]])) {
+                        if (!returnModels) {
                             x[[i]]$fitLibrary <- NULL
-                            x[[i]]$env <- NULL
-                        } else {
-                            x[[i]] <- del_fitLibrary(value)
                         }
+                        x[[i]]$env <- NULL
+                    } else {
+                        x[[i]] <- del_fitLibrary(value, returnModels)
                     }
                 }
             }
-
-            x
         }
-        ftimeMod <- del_fitLibrary(ftimeMod)
-        ctimeMod <- del_fitLibrary(ctimeMod)
-        trtMod <- del_fitLibrary(trtMod)
+
+        x
     }
+    ftimeMod <- del_fitLibrary(ftimeMod, returnModels)
+    ctimeMod <- del_fitLibrary(ctimeMod, returnModels)
+    trtMod <- del_fitLibrary(trtMod, returnModels)
+
     out <- list(est = est, var = var, meanIC = meanIC, ic = infCurves,
                 trtMod = trtMod, ftimeMod = ftimeMod, ctimeMod = ctimeMod,
                 ftime = ftime, ftype = ftype, trt = trt, adjustVars = adjustVars,

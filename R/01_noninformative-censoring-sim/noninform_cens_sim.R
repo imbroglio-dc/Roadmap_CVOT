@@ -120,12 +120,12 @@ nIC_plot <- tibble(t = rep(time_span, 2),
           axis.text = element_text(size = 16),
           legend.text = element_text(size = 14))
 ggsave(nIC_plot, filename = "nic-data.png", device = "png",
-       path = here("R/final_cvot/01_noninformative-censoring-sim/"),
-       width = 11, height = 6, units = "in")
+       path = here("R/01_noninformative-censoring-sim/"),
+       width = 8, height = 4, units = "in")
 
 
 # TRUE RISKS
-targets <- 2*52 # 3 year by weekly interval
+targets <- 2*52 # 2 year by weekly interval
 true_risks <- tibble(t = rep(time_span, 2),
                      A = rep(names(survivals), each = length(time_span)),
                      s = as.vector(do.call(c, survivals))) %>%
@@ -175,8 +175,8 @@ sim_data <- foreach(b = 1:B,
     }
 stopCluster(cl)
 rm(cl)
-saveRDS(sim_data, file = here("R/final_cvot/01_noninformative-censoring-sim/noninf-cens-data.RDS"))
-sim_data <- read_rds(here("R/final_cvot/01_noninformative-censoring-sim/noninf-cens-data.RDS"))
+saveRDS(sim_data, file = here("R/01_noninformative-censoring-sim/noninf-cens-data.RDS"))
+# sim_data <- read_rds(here("R/01_noninformative-censoring-sim/noninf-cens-data.RDS"))
 
 # Estimation --------------------------------------------------------------
 
@@ -445,8 +445,8 @@ system.time(
 stopCluster(cl)
 rm(cl)
 
-saveRDS(sim_estimates, here("R/final_cvot/01_noninformative-censoring-sim/noninf-cens-estimates.RDS"))
-# sim_estimates <- read_rds(here("R/final_cvot/01_noninformative-censoring-sim/noninf-cens-estimates.RDS"))
+saveRDS(sim_estimates, here("R/01_noninformative-censoring-sim/noninf-cens-estimates.RDS"))
+# sim_estimates <- read_rds(here("R/01_noninformative-censoring-sim/noninf-cens-estimates.RDS"))
 
 # estimator performance ----------------------------------------------------------
 
@@ -539,8 +539,8 @@ coverage <- estimates %>%
     summarise_all(mean) %>% ungroup  # %>%
 # mutate(Hazard = case_when(as.character(Estimator) == "Kaplan-Meier" ~ "NA",
 #                           T ~ as.character(Hazard))) %>% distinct()
-saveRDS(coverage, here("R/final_cvot/01_noninformative-censoring-sim/noninf-cens-coverage.RDS"))
-coverage <- read_rds(here("R/final_cvot/01_noninformative-censoring-sim/noninf-cens-coverage.RDS"))
+saveRDS(coverage, here("R/01_noninformative-censoring-sim/noninf-cens-coverage.RDS"))
+# coverage <- read_rds(here("R/01_noninformative-censoring-sim/noninf-cens-coverage.RDS"))
 
 # plots -------------------------------------------------------------------
 
@@ -551,8 +551,8 @@ plot_df <- estimates %>%
                              labels = c("Control Survival", "Treated Survival",
                                         "Risk Difference", "Relative Risk",
                                         "Relative Survival")))
-saveRDS(plot_df, here("R/final_cvot/01_noninformative-censoring-sim/noninf-cens-plot_df.RDS"))
-plot_df <- read_rds(here("R/final_cvot/01_noninformative-censoring-sim/noninf-cens-plot_df.RDS"))
+saveRDS(plot_df, here("R/01_noninformative-censoring-sim/noninf-cens-plot_df.RDS"))
+# plot_df <- read_rds(here("R/01_noninformative-censoring-sim/noninf-cens-plot_df.RDS"))
 
 plot_df %>% ggplot() +
     geom_boxplot(aes(y = estimate, x = Estimator), outlier.shape = NA) +
@@ -569,365 +569,8 @@ plot_df %>% ggplot() +
                size = 2.5, na.rm = T)
 
 ggsave(filename = "noninf-cens-perf-plot.png",
-       path = here("R/final_cvot/01_noninformative-censoring-sim/"),
+       path = here("R/01_noninformative-censoring-sim/"),
        device = "png", width = 16, height = 9, units = "in")
-
-
-
-# # MULTIPLE TARGETS ------------------------------------------------
-#
-# ## TRUE RISKS
-# targets <- (1:9)*20 # year
-# true_risks <- tibble(t = rep(time_span, 2),
-#                      A = rep(names(survivals), each = length(time_span)),
-#                      s = as.vector(do.call(c, survivals))) %>%
-#     filter(t %in% targets) %>% group_by(t) %>%
-#     pivot_wider(names_from = A, values_from = s, names_prefix = "s") %>%
-#     mutate(RD = s0 - s1, RR = (1 - s1) / (1 - s0), SR = s1 / s0)
-# true_risks
-#
-# truths <- as.data.frame(t(mutate(true_risks[, -1]))) %>%
-#     rownames_to_column() %>% rename(`stats` = rowname, "truth" = V1)
-#
-# for (i in 1:B) {
-#     attr(sim_data[[i]], "sl_fits") <- sim_estimates[[i]]$SL_hazards
-#     attr(sim_data[[i]], "sl_ftime") <- sim_estimates[[i]]$SL_ftime
-# }
-#
-#
-# # Estimation --------------------------------------------------------------
-#
-# n_cores <- max(detectCores() - 4, 1)
-# registerDoParallel(n_cores)
-# cl <- makeForkCluster(n_cores)
-# B <- length(sim_data)
-# clusterSetRNGStream(cl = cl, iseed = 0)
-# system.time(
-#     sim_estimates_multi <- foreach(sim = sim_data[1:B], #
-#                                    .errorhandling = "pass",
-#                                    .verbose = T) %dopar%
-#         {
-#             options(warn = -1)
-#             results <- list()
-#
-#             # kaplan-meier ------------------------------------------------------------
-#
-#             km_fit <- try(summary(survfit(Surv(sim$time, sim$event, type = "right") ~
-#                                               ARM, type = "kaplan-meier", data = sim),
-#                                   times = targets, scale = 1))
-#
-#             results$KM <- try(tibble(t = round(km_fit$time, 1)) %>%
-#                                   mutate(A = rep(c(0, 1), each = length(t)/2),
-#                                          s = km_fit$surv, # s0, s1
-#                                          se = km_fit$std.err) %>%
-#                                   pivot_wider(names_from = A, values_from = c(s, se),
-#                                               names_sep = "") %>%
-#                                   mutate("RR" = (1-s1)/(1-s0), RD = s0 - s1) %>%
-#                                   dplyr::select(t, s0, s1, RD, RR, se0, se1) %>%
-#                                   cbind(Estimator = "Kaplan-Meier", .))
-#
-#
-#             # initial haz fit ---------------------------------------------------
-#
-#             sl_lib_g <- sl_lib_censor <- c("SL.glm")
-#             sl_lib_failure <- c("SL.mean", "SL.glm", "SL.glmnet",
-#                                 "SL.ranger", "SL.rpartPrune", "SL.xgboost")
-#             timescale <- 4
-#             sim <- mutate(sim, time = ceiling(time/timescale))
-#             W <- dplyr::select(sim, SMOKER, AGE, OBESEBL)
-#
-#             sl_fits <- attr(sim, "sl_fits")
-#
-#             # misspec haz -------------------------------------------------------------
-#
-#             haz_mis <- sl_fits$misspec
-#
-#             # g-comp misspec ----------------------------------------------
-#
-#             k_grid <- (1:ncol(haz_mis[[1]]$survival) - 1)*timescale
-#             surv_init <- data.frame(s = c(colMeans(haz_mis[[1]]$survival),
-#                                           colMeans(haz_mis[[2]]$survival)),
-#                                     A = rep(c("A = 1", "A = 0"), each = length(k_grid)),
-#                                     t = k_grid)
-#
-#             results$gcomp <- try(surv_init %>%
-#                                      filter(t %in% targets) %>% group_by(t) %>%
-#                                      pivot_wider(names_from = A, values_from = s) %>%
-#                                      rename(s1 = `A = 1`, s0 = `A = 0`) %>%
-#                                      mutate(RD = s0 - s1, RR = (1 - s1) / (1 - s0)) %>%
-#                                      ungroup() %>% dplyr::select(t, s0, s1, RD, RR) %>%
-#                                      cbind(Estimator = "G-Comp: Misspecified", .))
-#
-#             # correct haz --------------------------------------------------------------
-#
-#             haz_cor <- sl_fits$correct
-#
-#             # g-comp correct ----------------------------------------------
-#
-#             surv_init <- data.frame(s = c(colMeans(haz_cor[[1]]$survival),
-#                                           colMeans(haz_cor[[2]]$survival)),
-#                                     A = rep(c("A = 1", "A = 0"), each = length(k_grid)),
-#                                     t = k_grid)
-#
-#             results$gcomp <- try(surv_init %>%
-#                                      filter(t %in% targets) %>% group_by(t) %>%
-#                                      pivot_wider(names_from = A, values_from = s) %>%
-#                                      rename(s1 = `A = 1`, s0 = `A = 0`) %>%
-#                                      mutate(RD = s0 - s1, RR = (1 - s1) / (1 - s0)) %>%
-#                                      ungroup() %>% dplyr::select(t, s0, s1, RD, RR) %>%
-#                                      cbind(Estimator = "G-Comp: Correct", .) %>%
-#                                      rbind(results$gcomp, .))
-#
-#             # sl haz ------------------------------------------------------------------
-#
-#             haz_sl <- sl_fits$sl
-#
-#             # g-comp sl ----------------------------------------------
-#
-#             surv_init <- data.frame(s = c(colMeans(haz_sl[[1]]$survival),
-#                                           colMeans(haz_sl[[2]]$survival)),
-#                                     A = rep(c("A = 1", "A = 0"), each = length(k_grid)),
-#                                     t = k_grid)
-#
-#             results$gcomp <- try(surv_init %>%
-#                                      filter(t %in% targets) %>% group_by(t) %>%
-#                                      pivot_wider(names_from = A, values_from = s) %>%
-#                                      rename(s1 = `A = 1`, s0 = `A = 0`) %>%
-#                                      mutate(RD = s0 - s1, RR = (1 - s1) / (1 - s0)) %>%
-#                                      ungroup() %>% dplyr::select(t, s0, s1, RD, RR) %>%
-#                                      cbind(Estimator = "G-Comp: SuperLearner", .) %>%
-#                                      rbind(results$gcomp, .))
-#
-#             # SurvTMLE Haz ---------------------------------------------------------
-#
-#             ## from g-comp hazard
-#             SL_ftime <- attr(sim, "sl_ftime")
-#
-#             glm_trt <- paste0(colnames(W), collapse = " + ")
-#             glm_ctime <- "Kaplan-Meier"
-#
-#
-#             # tmle misspec ------------------------------------------------------------
-#
-#             tmle_mis <- try(surv_tmle(ftime = sim$time, ftype = sim$event,
-#                                       targets = targets/timescale, trt = sim$ARM,
-#                                       t0 = max(targets/timescale), adjustVars = W,
-#                                       SL.ftime = SL_ftime[["misspec"]],
-#                                       glm.trt = glm_trt, glm.ctime = glm_ctime,
-#                                       returnIC = T, returnModels = T,
-#                                       ftypeOfInterest = 1, trtOfInterest = c(1, 0),
-#                                       maxIter = 10, method = "hazard"))
-#
-#             results$survtmle_h <- suppressWarnings(
-#                 try(t(1 - tmle_mis$est) %>% unname() %>%
-#                         cbind(t = targets, .) %>% as_tibble() %>%
-#                         rename("s0" = V2, "s1" = V3) %>%
-#                         mutate(RD = s0 - s1, RR = (1-s1)/(1-s0))))
-#             results$survtmle_h <- suppressWarnings(
-#                 try(matrix(sqrt(diag(tmle_mis$var)),
-#                            nrow = length(targets), byrow = T,
-#                            dimnames = list(NULL, c("se0", "se1"))) %>%
-#                         as.data.frame() %>% cbind(results$survtmle_h, .) %>%
-#                         cbind(Estimator = "TMLE: Hazard - Misspec", .)))
-#             results$tmleICmis <- try(tmle_mis$ic)
-#
-#             # tmle correct ------------------------------------------------------------
-#
-#             tmle_cor <- try(surv_tmle(ftime = sim$time, ftype = sim$event,
-#                                       targets = targets/timescale, trt = sim$ARM,
-#                                       t0 = max(targets/timescale), adjustVars = W,
-#                                       SL.ftime = SL_ftime[["correct"]],
-#                                       glm.trt = glm_trt, glm.ctime = glm_ctime,
-#                                       returnIC = T, returnModels = T,
-#                                       ftypeOfInterest = 1, trtOfInterest = c(1, 0),
-#                                       maxIter = 10, method = "hazard"))
-#
-#             tmle_cor_out <- suppressWarnings(
-#                 try(t(1 - tmle_cor$est) %>% unname() %>%
-#                         cbind(t = targets, .) %>% as_tibble() %>%
-#                         rename("s0" = V2, "s1" = V3) %>%
-#                         mutate(RD = s0 - s1, RR = (1-s1)/(1-s0))))
-#             results$survtmle_h <- suppressWarnings(
-#                 try(matrix(sqrt(diag(tmle_cor$var)),
-#                            nrow = length(targets), byrow = T,
-#                            dimnames = list(NULL, c("se0", "se1"))) %>%
-#                         as.data.frame() %>% cbind(tmle_cor_out, .) %>%
-#                         cbind(Estimator = "TMLE: Hazard - Correct", .) %>%
-#                         rbind(results$survtmle_h, .)))
-#             results$tmleICcor <- try(tmle_cor$ic)
-#
-#             # tmle sl -----------------------------------------------------------------
-#
-#             tmle_sl <- try(surv_tmle(ftime = sim$time, ftype = sim$event,
-#                                      targets = targets/timescale, trt = sim$ARM,
-#                                      t0 = max(targets/timescale), adjustVars = W,
-#                                      SL.ftime = SL_ftime[["sl"]],
-#                                      glm.trt = glm_trt, glm.ctime = glm_ctime,
-#                                      returnIC = T, returnModels = T,
-#                                      ftypeOfInterest = 1, trtOfInterest = c(1, 0),
-#                                      maxIter = 10, method = "hazard"))
-#
-#             tmle_sl_out <- suppressWarnings(
-#                 try(t(1 - tmle_sl$est) %>% unname() %>%
-#                         cbind(t = targets, .) %>% as_tibble() %>%
-#                         rename("s0" = V2, "s1" = V3) %>%
-#                         mutate(RD = s0 - s1, RR = (1-s1)/(1-s0))))
-#             results$survtmle_h <- suppressWarnings(
-#                 try(matrix(sqrt(diag(tmle_sl$var)),
-#                            nrow = length(targets), byrow = T,
-#                            dimnames = list(NULL, c("se0", "se1"))) %>%
-#                         as.data.frame() %>% cbind(tmle_sl_out, .) %>%
-#                         cbind(Estimator = "TMLE: Hazard - SL", .) %>%
-#                         rbind(results$survtmle_h, .)))
-#             results$tmleICsl <- try(tmle_sl$ic)
-#
-#
-#             # return results ----------------------------------------------------------
-#
-#             return(results)
-#         })
-# stopCluster(cl)
-# rm(cl)
-#
-# saveRDS(sim_estimates_multi,
-#         here("R/final_cvot/01_noninformative-censoring-sim/noninf-cens-estimates-multi.RDS"))
-#
-# # estimator performance ----------------------------------------------------------
-#
-# estimates <- bind_rows(lapply(sim_estimates_multi, function(sim_est) {
-#     sim_est$KM <- sim_est$KM %>%
-#         mutate(s0_se = se0, s1_se = se1,
-#                RR_se = sqrt(se1^2 / (1-s0)^2 + se0^2 * ((1-s1) / (1-s0)^2)^2),
-#                RD_se = sqrt(se1^2 + se0^2),
-#                SR_se = sqrt(se1^2 / s0^2 + se0^2 * s1^2 / s0^4))
-#     ic_ind <- str_detect(names(sim_est), "tmleIC")
-#     est_ind <- head(str_detect(names(sim_est), "survtmle"), -1)
-#     ic <- t(do.call(cbind, sim_est[ic_ind]))
-#     ic <- cbind(Estimator = rep(names(sim_est)[ic_ind], each = nrow(ic) / sum(ic_ind)),
-#                 A = rep(rep(c("0", '1'), each = length(targets)), times = sum(ic_ind)),
-#                 t = targets,
-#                 as.data.frame(ic)) %>%
-#         mutate(Estimator = factor(Estimator, levels = names(sim_est)[ic_ind])) %>%
-#         arrange(Estimator, t, A)
-#     ic <- as.matrix(dplyr::select(ic, -c(Estimator, `t`, `A`)))
-#
-#     est <- do.call(rbind, sim_est[est_ind]) %>%
-#         dplyr::select(Estimator, t, s0, s1)
-#
-#     se <- tibble(s0_se = apply(ic[seq(1, nrow(ic), 2), ], 1, var),
-#                  s1_se = apply(ic[seq(2, nrow(ic), 2), ], 1, var),
-#                  RD_se = sapply(1:(nrow(ic)/2), function(i) {
-#                      var(colSums(c(1, -1) * ic[(2*i-1):(2*i), ]))
-#                  }),
-#                  RR_se = sapply(1:(nrow(ic)/2), function(i) {
-#                      s0 = est[i, "s0"] ; s1 = est[i, "s1"]
-#                      var(colSums(c((1-s1)/(1-s0)^2, -1/(1-s0)) *
-#                                      ic[(2*i-1):(2*i), ]))
-#                  }),
-#                  SR_se = sapply(1:(nrow(ic)/2), function(i) {
-#                      s0 = est[i, "s0"] ; s1 = est[i, "s1"]
-#                      var(colSums(c(-(s1)/(s0)^2, 1/s0) * ic[(2*i-1):(2*i), ]))
-#                  })) %>% apply(., 2, function(j) sqrt(j / ncol(ic))) %>%
-#         as_tibble() %>% bind_cols(Estimator = est$Estimator, t = est$t, .)
-#     sim_est$survtmle_h <- suppressWarnings(
-#         left_join(sim_est$survtmle_h, se, by = c("Estimator", "t")))
-#     suppressWarnings(intersect(names(sim_est),
-#                                c("KM", "gcomp", "survtmle_h", "survtmle_m")) %>%
-#                          sim_est[.] %>% bind_rows() %>%
-#                          dplyr::select(-c(se0, se1)) %>%
-#                          mutate(SR = s1/s0,
-#                                 Estimator = factor(Estimator,
-#                                                    levels = c("Kaplan-Meier",
-#                                                               "G-Comp: Misspecified",
-#                                                               "G-Comp: Correct",
-#                                                               "G-Comp: SuperLearner",
-#                                                               "TMLE: Hazard - Misspec",
-#                                                               "TMLE: Hazard - Correct",
-#                                                               "TMLE: Hazard - SL",
-#                                                               "TMLE: LTMLE - Misspec",
-#                                                               "TMLE: LTMLE - Correct",
-#                                                               "TMLE: LTMLE - SL"),
-#                                                    labels = c("Kaplan-Meier", "G-Comp: Mis",
-#                                                               "G-Comp: Corr", "G-Comp: SL",
-#                                                               "TMLE: Mis", "TMLE: Corr",
-#                                                               "TMLE: SL", "LTMLE: Mis",
-#                                                               "LTMLE: Corr", "LTMLE: SL"))) %>%
-#                          separate(col = Estimator, into = c("Estimator", "Hazard"), sep = ": ") %>%
-#                          mutate(Hazard = case_when(Hazard == "Mis" ~ "Misspecified",
-#                                                    Hazard == "Corr"  ~ "Correct",
-#                                                    Hazard == "SL" ~ "SuperLearner")))
-# })) %>%
-#     mutate(iter = rep(1:length(sim_estimates_multi),
-#                       each = n()/length(sim_estimates_multi)))
-# estimates <- estimates %>%
-#     filter(Estimator == "Kaplan-Meier") %>% dplyr::select(-Hazard) %>%
-#     cbind(Hazard = rep(c("Misspecified", "Correct", "SuperLearner"),
-#                        each = length(sim_estimates_multi))) %>%
-#     dplyr::select(Estimator, Hazard, everything()) %>%
-#     rbind(., filter(estimates, Estimator != "Kaplan-Meier")) %>%
-#     mutate(Estimator = factor(Estimator, levels = c("Kaplan-Meier", "G-Comp",
-#                                                     "TMLE", "LTMLE"))) %>%
-#     arrange(iter, Estimator) %>% as_tibble()
-#
-# estimates <- dplyr::select(true_risks, c("t", "RR", "s0", "s1")) %>%
-#     rename(RR_true = RR, s0_true = s0, s1_true = s1) %>%
-#     mutate(RD_true = s0_true - s1_true, SR_true = s1_true / s0_true) %>%
-#     right_join(estimates, ., by = 't') %>%
-#     pivot_longer(cols = -c(t, Estimator, Hazard, iter, contains(c("se", "true"))),
-#                  names_to = "estimand", values_to = "estimate") %>%
-#     pivot_longer(cols = contains(c("true")), names_to = "estimand_t",
-#                  names_pattern = "([[:alnum:]]+)", values_to = "truth") %>%
-#     filter(estimand == estimand_t) %>%
-#     pivot_longer(cols = contains(c("se")), names_to = "estimand_se",
-#                  names_pattern = "([[:alnum:]]+)", values_to = "se") %>%
-#     filter(estimand_t == estimand_se) %>%
-#     dplyr::select(-c(estimand_t, estimand_se))
-#
-# coverage <- estimates %>%
-#     mutate(Bias = estimate - truth,
-#            MSE = (estimate - truth)^2,
-#            Cover = abs(estimate-truth) < 1.96*se) %>%
-#     group_by(Estimator, Hazard, estimand, t) %>%
-#     mutate(O.se = sqrt(var(estimate))) %>%
-#     dplyr::select(-c(iter, estimate, truth, se)) %>%
-#     summarise_all(mean) %>% ungroup  # %>%
-#
-#
-# saveRDS(coverage, here("R/final_cvot/01_noninformative-censoring-sim/noninf-cens-coverage-multi.RDS"))
-#
-#
-# # plots -------------------------------------------------------------------
-#
-# plot_df <- estimates %>%
-#     left_join(., coverage, by = c("Estimator", "Hazard", "t", "estimand")) %>%
-#     mutate(estimand = factor(estimand,
-#                              levels = c("s0", "s1", "RD", "RR", "SR"),
-#                              labels = c("Control Survival", "Treated Survival",
-#                                         "Risk Difference", "Relative Risk",
-#                                         "Relative Survival")))
-# saveRDS(plot_df, here("R/final_cvot/01_noninformative-censoring-sim/noninf-cens-plotdf-multi.RDS"))
-#
-# tmp <- plot_df %>% filter(Estimator != "LTMLE")
-# tmp %>% ggplot() +
-#     geom_boxplot(aes(y = estimate, x = as_factor(t), colour = Estimator), outlier.shape = NA) +
-#     facet_wrap(Hazard~estimand, ncol = 5, scales = "free") +
-#     # geom_hline(aes(yintercept = truth),
-#     #            data = distinct(dplyr::select(plot_df, estimand, truth)),
-#     #            colour = "blue", alpha = .7) +
-#     labs(title = "Estimator Performance with non-Informative Censoring") +
-#     # geom_label(aes(x = Estimator, y = estimate,
-#     #                label = if_else(is.na(Cover), "NA",
-#     #                                paste0(round(Cover, 2)*100, "%"))),
-#     #            data = summarise_all(group_by_if(tmp, ~!is.numeric(.)),
-#     #                                 ~quantile(., .95, na.rm = T)),
-#     #            size = 2.5, na.rm = T) +
-#     theme_minimal()
-#
-# ggsave(filename = "noninf-cens-plot.png",
-#        path = here("R/final_cvot/01_noninformative-censoring-sim/"),
-#        device = "png", width = 22, height = 9, units = "in")
-#
-#
 
 
 # cox hazard ratio --------------------------------------------------------
