@@ -3,7 +3,7 @@ library(SuperLearner); library(survtmle); library(MOSS)
 source(file = here("R/functions/my_sl_functions.R"))
 source(file = here("R/functions/my_MOSS_hazard_methods.R"))
 source(file = here("R/functions/my_survtmle_functions.R"))
-i_am("R/final_cvot/03_LEADER/primary/LEADER_analysis.R")
+i_am("R/final_cvot/03_LEADER/nfMI/nfMI.R")
 
 set.seed(0)
 
@@ -17,9 +17,9 @@ targets <- 1:4 * 12 / timescale # target end of years 1-4
 ### cleaned covariates ----
 source(file = here("R/functions/LEADER_W_clean_new.R"))
 
-obs <- dplyr::select(outcomes, USUBJID, AVAL_MACE, EVENT_MACE) %>%
+obs <- dplyr::select(outcomes, USUBJID, AVAL_NFMI, EVENT_NFMI) %>%
     left_join(., W_imputed) %>%
-    rename(TIME = AVAL_MACE, EVENT = EVENT_MACE) %>%
+    rename(TIME = AVAL_NFMI, EVENT = EVENT_NFMI) %>%
     dplyr::select(-USUBJID) %>%
     mutate(TIME = ceiling(TIME / timescale))
 
@@ -48,9 +48,9 @@ results$estimates <- tibble(t = km_est$time) %>%
 
 # cox RR estimate -----------------------------------------------------------------------------
 
-cox_fit <- coxph(Surv(obs$TIME, obs$EVENT) ~ ARM, data = mutate(obs, ARM = factor(ARM)))
+cox_fit <- coxph(Surv(obs$TIME, obs$EVENT) ~ ARM,
+                 data = mutate(obs, ARM = factor(ARM)))
 summary(cox_fit)
-
 
 # ldr_cox <- survfit(cox_fit,
 #                    newdata = data.frame("ARM" = unique(tmpobs$ARM)))
@@ -72,6 +72,7 @@ summary(cox_fit)
 #
 # ggsave(filename = "leader.png", path = "R/final_cvot/03_LEADER/",
 #        device = "png", width = 9, height = 6, units = "in", result_plot)
+
 
 ## TMLE ----
 ### Define superlearner learners and libraries ----
@@ -131,11 +132,11 @@ sl_lib_failure <- c("SL.glm", glmnets$names, # "SL.ranger",
 # See novo.nordisk:::init_sl_fit for other returned values, but the failure event
 # hazards and censoring probabilities are needed for the surv_tmle function)
 set.seed(256)
-if (file.exists(here("R/03_LEADER/primary/sl_fit-fullcov.RDS"))) {
-    sl_fit <- readRDS(here("R/03_LEADER/primary/sl_fit-fullcov.RDS"))
+if (file.exists("R/final_cvot/03_LEADER/nfMI/output/LEADER-estimates-tbl.RDS")) {
+    result_tbl <- readRDS(here("R/final_cvot/03_LEADER/nfMI/output/LEADER-estimates-tbl.RDS"))
 } else {
-    if (file.exists(here("R/final_cvot/03_LEADER/primary/output/sl_fit_primary.RDS"))) {
-        sl_fit <- readRDS(here("R/final_cvot/03_LEADER/primary/output/sl_fit_primary.RDS"))
+    if (file.exists(here("R/final_cvot/03_LEADER/nfMI/output/sl_fit_nfMI.RDS"))) {
+        sl_fit <- readRDS(here("R/final_cvot/03_LEADER/nfMI/output/sl_fit_nfMI.RDS"))
     } else {
         sl_fit <- my_init_sl_fit(
             T_tilde = obs$TIME,
@@ -147,7 +148,7 @@ if (file.exists(here("R/03_LEADER/primary/sl_fit-fullcov.RDS"))) {
             sl_censoring = sl_lib_censor,
             sl_treatment = "SL.glm",
             cv.Control = list(V = 10))
-        saveRDS(sl_fit, here("R/final_cvot/03_LEADER/primary/output/sl_fit_primary.RDS"), compress = F)
+        saveRDS(sl_fit, here("R/final_cvot/03_LEADER/nfMI/output/sl_fit_nfMI.RDS"), compress = F)
     }
 
     haz_sl <- list(sl_fit$density_failure_1$clone(),
@@ -156,8 +157,11 @@ if (file.exists(here("R/03_LEADER/primary/sl_fit-fullcov.RDS"))) {
     haz_sl[[2]]$haz2surv()
     names(haz_sl) <- c("A = 1", "A = 0")
 
-    saveRDS(sl_fit, here("R/03_LEADER/primary/sl_fit-fullcov.RDS"), compress = F)
-}
+    results$estimates <- data.frame(s1 = colMeans(haz_sl[[1]]$survival),
+                                    s0 = colMeans(haz_sl[[2]]$survival)) %>%
+        mutate(t = 1:length(s1)) %>% filter(t %in% targets) %>%
+        cbind(Estimator = "G-Comp", .) %>%
+        bind_rows(results$estimates, .)
 
 
     # tmle --------------------------------------------------------------------
@@ -216,30 +220,7 @@ if (file.exists(here("R/03_LEADER/primary/sl_fit-fullcov.RDS"))) {
         cbind(Estimator = "TMLE", .)
     rm(tmle_sl)
 
-
-se <- tibble(s0_se = apply(ic[1:(nrow(ic)/2), ], 1, var),
-             s1_se = apply(ic[(nrow(ic)/2 + 1):nrow(ic), ], 1, var),
-             RD_se = sapply(1:(nrow(ic)/2), function(i) {
-                 var(colSums(c(1, -1) * ic[c(i, i + (nrow(ic)/2)), ]))
-             }),
-             RR_se = sapply(1:(nrow(ic)/2), function(i) {
-                 s0 = tmle_sl_out[i, "s0"] ; s1 = tmle_sl_out[i, "s1"]
-                 var(colSums(c((1 - s1)/(1 - s0)^2, -1/(1 - s0)) *
-                                 ic[c(i, i + (nrow(ic)/2)), ]))
-             }),
-             SR_se = sapply(1:(nrow(ic)/2), function(i) {
-                 s0 = tmle_sl_out[i, "s0"] ; s1 = tmle_sl_out[i, "s1"]
-                 var(colSums(c(-(s1)/(s0)^2, 1/s0) * ic[c(i, i + (nrow(ic)/2)), ]))
-             })) %>% apply(., 2, function(j) sqrt(j / ncol(ic))) %>%
-    as_tibble() %>% bind_cols(t = targets, .) %>%
-    pivot_longer(-`t`, names_to = c("Estimand", "tmp"), names_sep = "_",
-                 values_to = "se") %>% dplyr::select(-tmp) %>%
-    cbind(Estimator = "TMLE", .)
-rm(tmle_sl)
-
-# plot results ------------------------------------------------------------
-
-if (!file.exists(here("R/03_LEADER/primary/LEADER-estimates-tbl-fullcov.RDS"))) {
+    # plot results ------------------------------------------------------------
     result_tbl <- results$estimates %>%
         mutate(RD = (1 - s1) - (1 - s0),
                RR = (1 - s1) / (1 - s0),
@@ -268,9 +249,7 @@ if (!file.exists(here("R/03_LEADER/primary/LEADER-estimates-tbl-fullcov.RDS"))) 
                                T ~ 1),
                t = t * timescale) %>%
         dplyr::select(Estimator, t, Estimand, Estimate, se, Eff)
-    saveRDS(object = result_tbl, here("R/03_LEADER/primary/LEADER-estimates-tbl-fullcov.RDS"))
-} else {
-    result_tbl <- readRDS(here("R/03_LEADER/primary/LEADER-estimates-tbl-fullcov.RDS"))
+    saveRDS(object = result_tbl, here("R/final_cvot/03_LEADER/nfMI/output/LEADER-estimates-tbl.RDS"))
 }
 
 
@@ -280,13 +259,14 @@ result_plot <- result_tbl %>% filter(Estimand == "RR", Estimator != "G-Comp") %>
                       ymax = Estimate + 1.96*se), width = .5,
                   position = position_dodge(.5)) +
     geom_point(position = position_dodge(.5)) + theme_minimal() +
-    labs(x = "Months", y = "Relative Risk", title = "LEADER MACE Analysis") +
+    labs(x = "Months", y = "Relative Risk", title = "LEADER non-fatal MI Analysis") +
     geom_label(aes(y = Estimate - 1.96 * `se`,
-                   label = paste0("Eff = ", round(Eff, 2)*100, "%")), nudge_y = -.025,
+                   label = paste0("Eff = ", round(Eff, 2)*100, "%")), nudge_y = -.03,
                data = filter(result_tbl, Estimand  == "RR", Estimator == "TMLE"),
                colour = 'black')
-ggsave(filename = "leader.png", path = "R/03_LEADER/primary/",
-       plot = result_plot, device = "png", width = 9, height = 6, units = "in")
+result_plot
+ggsave(filename = "leader-nfMI.png", path = "R/final_cvot/03_LEADER/nfMI/output/",
+       plot = result_plot, device = "png", width = 6, height = 4, units = "in")
 
 
 # result_plot <- result_tbl %>% filter(Estimand == "RD", Estimator != "G-Comp") %>%
@@ -297,16 +277,17 @@ ggsave(filename = "leader.png", path = "R/03_LEADER/primary/",
 #     geom_point(position = position_dodge(.5)) + theme_minimal() +
 #     labs(x = "\nTime (Months)", y = "Risk Difference\n",
 #          title = "LEADER Analysis: Composite Event (MACE)") +
-#     theme(axis.text=element_text(size=12),
-#           axis.title=element_text(size=16)) +
+# theme(axis.text=element_text(size=12),
+#       axis.title=element_text(size=16)) +
 # geom_label(aes(x = as.character(`t`), y = Estimate - 1.96 * `se` - 0.001,
 #                label = paste0("Eff = ", round(Eff, 3)*100, "%")),
 #            data = filter(result_tbl, Estimand  == "RD", Estimator == "TMLE"),
 #            colour = 'black')
 # result_plot
 #
-# ggsave(filename = "leader_MACE.png", path = "R/competing_risks/LEADER/nfMI/",
+# ggsave(filename = "leader_MACE.png", path = "R/competing_risks/LEADER/nfMI/output/",
 #        plot = result_plot, device = "png", width = 9, height = 6, units = "in")
+
 
 
 tmp <- result_tbl %>% filter(Estimand == "RR", Estimator != "G-Comp", `t` == 48) %>%
@@ -316,7 +297,8 @@ tmp <- result_tbl %>% filter(Estimand == "RR", Estimator != "G-Comp", `t` == 48)
                         "Eff" = 1, "ci" = exp(cox_fit$coefficients[1] + 1.96 * sqrt(cox_fit$var[1,1])) -
                             exp(cox_fit$coefficients[1] - 1.96 * sqrt(cox_fit$var[1,1])))) %>%
     mutate(ci = ci/tail(ci, 1)) %>%
-    mutate(p.val = pnorm(Estimate, 1, se)*2, upper = round(Estimate + 1.96*se, 2), lower = round(Estimate - 1.96*se, 2))
+    mutate(p.val = pnorm(Estimate, 1, se)*2, upper = Estimate + 1.96*se, lower = Estimate - 1.96*se)
+
 
 result_tbl %>% filter(Estimand == "RR", Estimator != "G-Comp") %>% group_by(`t`) %>%
     mutate(relKM_ci = 1.96*se*2,
@@ -335,47 +317,16 @@ combined_result_plot <- result_tbl %>%
                         "u" = exp(cox_fit$coefficients[1] + 1.96 * sqrt(cox_fit$var[1,1]))
     )) %>% mutate(relCI = (u - l) / tail(u - l, 1)) %>%
     ggplot(aes(x = Estimator, y = Estimate, colour = Estimator)) +
-    geom_errorbar(aes(ymin = l, ymax = u), width = 0.8) +
+    geom_errorbar(aes(ymin = l, ymax = u), width = 0.8) + 
     geom_point(size = 2) + theme_minimal() +
     geom_hline(aes(yintercept = 1), alpha = 0.3, colour = "black") +
     geom_label(aes(y = l, label = paste0("Rel CI = ", round(relCI, 2)*100, "%")),
                nudge_y = -.03, colour = 'black') +
     scale_y_continuous(name = "Hazard Ratio\n",
                        sec.axis = sec_axis(~., name="Year 4 Relative Risk\n")) +
-    labs(x = "\nEstimator",  title = "LEADER MACE Analysis") +
+    labs(x = "\nEstimator",  title = "LEADER non-fatal MI Analysis") +
     # theme(axis.text=element_text(size=12), axis.title=element_text(size=16)) +
     theme(legend.position="none")
 combined_result_plot
-ggsave(filename = "leader-primary+cox.png", path = "R/final_cvot/03_LEADER/primary/output/",
+ggsave(filename = "leader-nfMI+cox.png", path = "R/final_cvot/03_LEADER/nfMI/output/",
        plot = combined_result_plot, device = "png", width = 6, height = 4, units = "in")
-
-
-
-res_plot <- result_tbl %>% filter(Estimand  == "RR")
-res_plot[res_plot$Estimator == "G-Comp", "Estimate"] <- ldr_cox_rr$RR
-res_plot <- res_plot %>% mutate(Estimator = case_when(Estimator == "G-Comp" ~ "G-Comp: Cox",
-                                                      T ~ Estimator)) %>%
-    ggplot(aes(x = as.character(`t`), y = Estimate, colour = Estimator)) +
-    geom_errorbar(aes(ymin = Estimate - 1.96*se,
-                      ymax = Estimate + 1.96*se), width = .5,
-                  position = position_dodge(.5)) +
-    geom_point(position = position_dodge(.5)) + theme_minimal() +
-    labs(x = "Months", y = "Relative Risk") #, title = "LEADER re-Analysis"
-
-# ggsave(filename = "leader.png", path = "R/03_LEADER/",
-#        device = "png", width = 9, height = 6, units = "in", result_plot)
-
-
-
-# relative CIs --------------------------------------------------------------------------------
-
-rr_tbl <- result_tbl %>% filter(Estimand == "RR", Estimator != "G-Comp") %>%
-    dplyr::select(-Estimand) %>%
-    mutate(ci = 2 * 1.96 * se) %>%
-    rbind(data.frame("Estimator" = "Cox", "t" = NA,
-                     "Estimate" = exp(ldr_cox$coef),
-                     "se" = NA, "Eff" = NA,
-                     "ci" = diff(exp(ldr_cox$coef +
-                                         sqrt(ldr_cox$var[1, 1]) * 1.96 * c(-1, 1))))) %>%
-    mutate(relCI = ci / tail(ci, 1))
-

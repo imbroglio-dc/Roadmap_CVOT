@@ -148,6 +148,10 @@ screen_cor <- create.Learner(base_learner = "screen.corRank",
                              tune = list("rank" = c(15, 40, 60)),
                              detailed_names = T)
 
+small_screen <- create.Learner(base_learner = "screen.corRank",
+                               tune = list("rank" = c(10, 15)),
+                               detailed_names = T)
+
 glmnets <- create.Learner(base_learner = "SL.glmnet",
                           tune = list("alpha" = c(0, 0.5, 1)),
                           detailed_names = T)
