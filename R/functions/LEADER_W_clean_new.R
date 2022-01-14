@@ -1,6 +1,9 @@
 
 library(here); library(tidyverse); library(mice); library(haven)
+
+## CHANGE DATA PATH TO MATCH LOCAL DATA STORAGE FILE STRUCTURE
 data_path <- ("data/ex2211-3748-3/Analysis Ready Datasets/SAS_analysis/")
+
 include_slices <- TRUE # includes slicing/binning of variables (e.g. AGE >= 65, BMI>30, etc)
 
 # read in subject level covariate dataset
