@@ -43,12 +43,16 @@ surv_tmle <- function (ftime, ftype, trt, adjustVars, t0 = max(ftime[ftype > 0])
                                tvcov_fun = tvcov_fun)
     }
 
+    if (!("converged" %in% names(tmle.fit)))
+        tmle.fit$converged <- NA
+
     out <- list(call = call, est = tmle.fit$est, var = tmle.fit$var,
                 meanIC = tmle.fit$meanIC, ic = tmle.fit$ic,
                 ftimeMod = tmle.fit$ftimeMod, ctimeMod = tmle.fit$ctimeMod,
                 trtMod = tmle.fit$trtMod, t0 = t0, ftime = tmle.fit$ftime,
                 ftype = tmle.fit$ftype, trt = tmle.fit$trt,
-                adjustVars = tmle.fit$adjustVars, init_est = tmle.fit$init_est)
+                adjustVars = tmle.fit$adjustVars, init_est = tmle.fit$init_est,
+                converged = tmle.fit$converged)
     class(out) <- "survtmle"
     return(out)
 }
@@ -175,6 +179,9 @@ haz_tmle <- function (ftime, ftype, trt, targets = max(ftime[ftype > 0]),
     if (ct == maxIter + 1) {
         warning("TMLE fluctuations did not converge. Check that meanIC is adequately \n
                 small and proceed with caution.")
+        converged <- FALSE
+    } else {
+        converged <- TRUE
     }
     est <- rowNames <- NULL
     for (j in ofInterestJ) {
@@ -188,38 +195,38 @@ haz_tmle <- function (ftime, ftype, trt, targets = max(ftime[ftype > 0]),
     row.names(est) <- rowNames
     var <- crossprod(as.matrix(infCurves))/n^2
 
-    del_fitLibrary <- function(x, returnModels) {
-        if ("env" %in% names(x)) {
-            if (!returnModels) {
-                x$fitLibrary <- NULL
-            }
-            x$env <- NULL
-        } else {
-            for (i in seq_along(x)) {
-                value <- x[[i]]
-                if (class(x[[i]]) %in% c("survtmle" ,"SuperLearner", "list")) {
-                    if ("env" %in% names(x[[i]])) {
-                        if (!returnModels) {
-                            x[[i]]$fitLibrary <- NULL
-                        }
-                        x[[i]]$env <- NULL
-                    } else {
-                        x[[i]] <- del_fitLibrary(value, returnModels)
-                    }
-                }
-            }
-        }
-
-        x
-    }
-    ftimeMod <- del_fitLibrary(ftimeMod, returnModels)
-    ctimeMod <- del_fitLibrary(ctimeMod, returnModels)
-    trtMod <- del_fitLibrary(trtMod, returnModels)
+    # del_fitLibrary <- function(x, returnModels) {
+    #     if ("env" %in% names(x)) {
+    #         if (!returnModels) {
+    #             x$fitLibrary <- NULL
+    #         }
+    #         x$env <- NULL
+    #     } else {
+    #         for (i in seq_along(x)) {
+    #             value <- x[[i]]
+    #             if (class(x[[i]]) %in% c("survtmle" ,"SuperLearner", "list")) {
+    #                 if ("env" %in% names(x[[i]])) {
+    #                     if (!returnModels) {
+    #                         x[[i]]$fitLibrary <- NULL
+    #                     }
+    #                     x[[i]]$env <- NULL
+    #                 } else {
+    #                     x[[i]] <- del_fitLibrary(value, returnModels)
+    #                 }
+    #             }
+    #         }
+    #     }
+    #
+    #     x
+    # }
+    # ftimeMod <- del_fitLibrary(ftimeMod, returnModels)
+    # ctimeMod <- del_fitLibrary(ctimeMod, returnModels)
+    # trtMod <- del_fitLibrary(trtMod, returnModels)
 
     out <- list(est = est, var = var, meanIC = meanIC, ic = infCurves,
                 trtMod = trtMod, ftimeMod = ftimeMod, ctimeMod = ctimeMod,
                 ftime = ftime, ftype = ftype, trt = trt, adjustVars = adjustVars,
-                init_est = init_est)
+                init_est = init_est, converged = converged)
     class(out) <- "survtmle"
     return(out)
 }
