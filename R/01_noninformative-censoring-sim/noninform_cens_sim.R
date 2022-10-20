@@ -103,8 +103,8 @@ survivals <- lapply(s_AW, function(s) {
 })
 
 nIC_plot <- tibble(t = rep(time_span, 2),
-       A = rep(names(survivals), each = length(time_span)),
-       s = as.vector(do.call(c, survivals))) %>%
+                   A = rep(names(survivals), each = length(time_span)),
+                   s = as.vector(do.call(c, survivals))) %>%
     ggplot() + geom_line(aes(x = t, y = s, colour = A), size = 1.2) +
     geom_line(aes(x = x, y = y), alpha = .5, size = 1.2, linetype = 2,
               data = tibble(x = time_span, y = cens_km(time_span))) +
@@ -175,8 +175,8 @@ sim_data <- foreach(b = 1:B,
     }
 stopCluster(cl)
 rm(cl)
-saveRDS(sim_data, file = here("R/01_noninformative-censoring-sim/noninf-cens-data.RDS"))
-# sim_data <- read_rds(here("R/01_noninformative-censoring-sim/noninf-cens-data.RDS"))
+# saveRDS(sim_data, file = here("R/01_noninformative-censoring-sim/noninf-cens-data.RDS"))
+sim_data <- read_rds(here("R/01_noninformative-censoring-sim/noninf-cens-data.RDS"))
 
 # Estimation --------------------------------------------------------------
 
@@ -445,8 +445,8 @@ system.time(
 stopCluster(cl)
 rm(cl)
 
-saveRDS(sim_estimates, here("R/01_noninformative-censoring-sim/noninf-cens-estimates.RDS"))
-# sim_estimates <- read_rds(here("R/01_noninformative-censoring-sim/noninf-cens-estimates.RDS"))
+# saveRDS(sim_estimates, here("R/01_noninformative-censoring-sim/noninf-cens-estimates.RDS"))
+sim_estimates <- read_rds(here("R/01_noninformative-censoring-sim/noninf-cens-estimates.RDS"))
 
 # estimator performance ----------------------------------------------------------
 
@@ -536,10 +536,34 @@ coverage <- estimates %>%
     group_by(Estimator, Hazard, estimand, t) %>%
     mutate(O.se = sqrt(var(estimate))) %>%
     dplyr::select(-c(iter, estimate, truth, se)) %>%
-    summarise_all(mean) %>% ungroup  # %>%
-# mutate(Hazard = case_when(as.character(Estimator) == "Kaplan-Meier" ~ "NA",
-#                           T ~ as.character(Hazard))) %>% distinct()
-saveRDS(coverage, here("R/01_noninformative-censoring-sim/noninf-cens-coverage.RDS"))
+    summarise_all(mean) %>% ungroup
+
+
+coverage <- estimates %>%
+    group_by(Estimator, Hazard, `t`, estimand) %>%
+    summarise(Mean = mean(estimate),
+              Bias = mean(estimate - truth),
+              MSE = mean((estimate - truth)^2),
+              orac.var = var(estimate),
+              orac.cover = mean(estimate + 1.96*sqrt(orac.var) >= truth &
+                                    estimate - 1.96*sqrt(orac.var) <= truth),
+              cover = mean(estimate + 1.96*se >= truth &
+                               estimate - 1.96*se <= truth)) %>%
+    group_by(`t`, Hazard, estimand) %>%
+    mutate(rel.MSE = MSE / head(MSE, 1),
+           rel.Eff = head(orac.var, 1) / orac.var,
+           `Bias/se` = Bias/sqrt(orac.var)) %>%
+    dplyr::select(-Mean, -MSE, -orac.var) %>% ungroup()
+
+coverage %>% filter(Hazard == "SuperLearner") %>%
+    knitr::kable(., format = "simple", digits = 3)
+coverage %>% filter(Hazard == "SuperLearner") %>%
+    mutate(Estimand = factor(estimand, levels = c("s0", "s1", "RD", "RR", "SR"))) %>%
+    dplyr::select(Estimator, Estimand, Bias, cover, orac.cover, rel.Eff, rel.MSE) %>%
+    arrange(Estimand, Estimator) %>%
+    knitr::kable(., format = "latex", digits = 2)
+
+# saveRDS(coverage, here("R/01_noninformative-censoring-sim/noninf-cens-coverage.RDS"))
 # coverage <- read_rds(here("R/01_noninformative-censoring-sim/noninf-cens-coverage.RDS"))
 
 # plots -------------------------------------------------------------------
@@ -551,7 +575,7 @@ plot_df <- estimates %>%
                              labels = c("Control Survival", "Treated Survival",
                                         "Risk Difference", "Relative Risk",
                                         "Relative Survival")))
-saveRDS(plot_df, here("R/01_noninformative-censoring-sim/noninf-cens-plot_df.RDS"))
+# saveRDS(plot_df, here("R/01_noninformative-censoring-sim/noninf-cens-plot_df.RDS"))
 # plot_df <- read_rds(here("R/01_noninformative-censoring-sim/noninf-cens-plot_df.RDS"))
 
 plot_df %>% ggplot() +

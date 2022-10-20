@@ -475,8 +475,8 @@ system.time(
 stopCluster(cl)
 rm(cl)
 
-saveRDS(sim_estimates, here("R/02_informative-censoring-sim/inf-cens-estimates.RDS"))
-# sim_estimates <- read_rds(here("R/02_informative-censoring-sim/inf-cens-estimates.RDS"))
+# saveRDS(sim_estimates, here("R/02_informative-censoring-sim/inf-cens-estimates.RDS"))
+sim_estimates <- read_rds(here("R/02_informative-censoring-sim/inf-cens-estimates.RDS"))
 
 
 # estimator performance ----------------------------------------------------------
@@ -567,10 +567,32 @@ coverage <- estimates %>%
     group_by(Estimator, Hazard, estimand, t) %>%
     mutate(O.se = sqrt(var(estimate))) %>%
     dplyr::select(-c(iter, estimate, truth, se)) %>%
-    summarise_all(mean) %>% ungroup  # %>%
-# mutate(Hazard = case_when(as.character(Estimator) == "Kaplan-Meier" ~ "NA",
-#                           T ~ as.character(Hazard))) %>% distinct()
-saveRDS(sim_estimates, here("R/02_informative-censoring-sim/inf-cens-coverage.RDS"))
+    summarise_all(mean) %>% ungroup
+
+coverage <- estimates %>%
+    group_by(Estimator, Hazard, `t`, estimand) %>%
+    summarise(Mean = mean(estimate),
+              Bias = mean(estimate - truth),
+              MSE = mean((estimate - truth)^2),
+              orac.var = var(estimate),
+              orac.cover = mean(estimate + 1.96*sqrt(orac.var) >= truth &
+                                    estimate - 1.96*sqrt(orac.var) <= truth),
+              cover = mean(estimate + 1.96*se >= truth &
+                               estimate - 1.96*se <= truth)) %>%
+    group_by(`t`, Hazard, estimand) %>%
+    mutate(rel.MSE = MSE / head(MSE, 1),
+           rel.Eff = head(orac.var, 1) / orac.var,
+           `Bias/se` = Bias/sqrt(orac.var)) %>%
+    dplyr::select(-Mean, -MSE, -orac.var) %>% ungroup()
+
+coverage %>% filter(Hazard == "SuperLearner") %>%
+    knitr::kable(., format = "simple", digits = 3)
+coverage %>% filter(Hazard == "SuperLearner") %>%
+    mutate(Estimand = factor(estimand, levels = c("s0", "s1", "RD", "RR", "SR"))) %>%
+    dplyr::select(Estimator, Estimand, Bias, cover, orac.cover, rel.Eff, rel.MSE) %>%
+    arrange(Estimand, Estimator) %>%
+    knitr::kable(., format = "latex", digits = 2)
+# saveRDS(sim_estimates, here("R/02_informative-censoring-sim/inf-cens-coverage.RDS"))
 
 # plots -------------------------------------------------------------------
 
