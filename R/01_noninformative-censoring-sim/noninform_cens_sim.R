@@ -119,9 +119,9 @@ nIC_plot <- tibble(t = rep(time_span, 2),
           axis.title = element_text(face = "bold", size = 16),
           axis.text = element_text(size = 16),
           legend.text = element_text(size = 14))
-ggsave(nIC_plot, filename = "nic-data.png", device = "png",
-       path = here("R/01_noninformative-censoring-sim/"),
-       width = 8, height = 4, units = "in")
+# ggsave(nIC_plot, filename = "nic-data.png", device = "png",
+#        path = here("R/01_noninformative-censoring-sim/"),
+#        width = 8, height = 4, units = "in")
 
 
 # TRUE RISKS
@@ -176,7 +176,7 @@ sim_data <- foreach(b = 1:B,
 stopCluster(cl)
 rm(cl)
 # saveRDS(sim_data, file = here("R/01_noninformative-censoring-sim/noninf-cens-data.RDS"))
-sim_data <- read_rds(here("R/01_noninformative-censoring-sim/noninf-cens-data.RDS"))
+# sim_data <- read_rds(here("R/01_noninformative-censoring-sim/noninf-cens-data.RDS"))
 
 # Estimation --------------------------------------------------------------
 
@@ -446,7 +446,7 @@ stopCluster(cl)
 rm(cl)
 
 # saveRDS(sim_estimates, here("R/01_noninformative-censoring-sim/noninf-cens-estimates.RDS"))
-sim_estimates <- read_rds(here("R/01_noninformative-censoring-sim/noninf-cens-estimates.RDS"))
+# sim_estimates <- read_rds(here("R/01_noninformative-censoring-sim/noninf-cens-estimates.RDS"))
 
 # estimator performance ----------------------------------------------------------
 
@@ -530,16 +530,6 @@ estimates <- dplyr::select(true_risks, c("t", "RR", "s0", "s1")) %>%
     dplyr::select(-c(estimand_t, estimand_se))
 
 coverage <- estimates %>%
-    mutate(Bias = estimate - truth,
-           MSE = (estimate - truth)^2,
-           Cover = abs(estimate-truth) < 1.96*se) %>%
-    group_by(Estimator, Hazard, estimand, t) %>%
-    mutate(O.se = sqrt(var(estimate))) %>%
-    dplyr::select(-c(iter, estimate, truth, se)) %>%
-    summarise_all(mean) %>% ungroup
-
-
-coverage <- estimates %>%
     group_by(Estimator, Hazard, `t`, estimand) %>%
     summarise(Mean = mean(estimate),
               Bias = mean(estimate - truth),
@@ -550,14 +540,12 @@ coverage <- estimates %>%
               cover = mean(estimate + 1.96*se >= truth &
                                estimate - 1.96*se <= truth)) %>%
     group_by(`t`, Hazard, estimand) %>%
-    mutate(rel.MSE = MSE / head(MSE, 1),
+    mutate(rel.MSE = head(MSE, 1) / MSE,
            rel.Eff = head(orac.var, 1) / orac.var,
            `Bias/se` = Bias/sqrt(orac.var)) %>%
     dplyr::select(-Mean, -MSE, -orac.var) %>% ungroup()
 
-coverage %>% filter(Hazard == "SuperLearner") %>%
-    knitr::kable(., format = "simple", digits = 3)
-coverage %>% filter(Hazard == "SuperLearner") %>%
+coverage %>% filter(Hazard != "Correct") %>%
     mutate(Estimand = factor(estimand, levels = c("s0", "s1", "RD", "RR", "SR"))) %>%
     dplyr::select(Estimator, Estimand, Bias, cover, orac.cover, rel.Eff, rel.MSE) %>%
     arrange(Estimand, Estimator) %>%
@@ -592,9 +580,9 @@ plot_df %>% ggplot() +
                                     ~quantile(., .95, na.rm = T)),
                size = 2.5, na.rm = T)
 
-ggsave(filename = "noninf-cens-perf-plot.png",
-       path = here("R/01_noninformative-censoring-sim/"),
-       device = "png", width = 16, height = 9, units = "in")
+# ggsave(filename = "noninf-cens-perf-plot.png",
+#        path = here("R/01_noninformative-censoring-sim/"),
+#        device = "png", width = 16, height = 9, units = "in")
 
 
 # cox hazard ratio --------------------------------------------------------
