@@ -15,18 +15,22 @@ comment = "#>",
 cache.lazy = FALSE
 )
 
-library(novo.nordisk)
 library(SuperLearner)
 library(tidyverse)
+
+
+source("../R/functions/my_MOSS_hazard_methods.R")
+source("../R/functions/my_sl_functions.R")
+source("../R/functions/my_survtmle_functions.R")
 ```
 
 ## Non-Informative Censoring
 
 ```{r constant hazard}
-# load mock LEADER data with simulated outcomes from a constant hazard, 
-# novo.nordisk:::constant_hazard_fn. data generating process is recorded in 
-# data-raw/simulate_data.R
-constant_hazard <- novo.nordisk::constant_hazard
+# Simulate data based a subset of permuted LEADER data 
+# constant_hazard contains simulated outcomes using a constant hazard function
+source("../data-raw/simulate_data.R")
+head(constant_hazard)
 
 # target time: 104 weeks is the end of year 2
 targets <- 104
@@ -76,12 +80,12 @@ sl_lib_censor <- c("SL.glm")
 # use SuperLearner::create.Learner to alter default params of existing SL wrappers
 create.Learner(base_learner = "SL.hal9001", params = list(max_degree = 1))
 
-# Or create your own wrappers, like the following based on SL.glm. SL.misspec and
-# SL.correct are respectively the misspecified and correctly specified logistic
-# regressions used to generate estimator performance plots.
-
-SL.misspec <- novo.nordisk:::simple_misspec
-SL.correct <- novo.nordisk:::simple_correct
+# Or create your own wrappers, like the simple_mispec() and simple_correct(), which
+# are respectively a misspecified logistic regression and the correctly specified 
+# logistic regression used to generate estimator performance plots, based on the 
+# SL.glm() function from the SuperLearner package
+simple_misspec
+simple_correct
 
 # Specification of Superlearner library for estimating hazards. Exclude SL.xgboost
 # and SL.polymars for shorter compute time, use SL.misspec or SL.correct to see
@@ -100,7 +104,7 @@ constant_hazard <- constant_hazard %>% mutate(time = ceiling(time/timescale))
 # get SuperLearner estimate for failure hazard. Other objects are returned (see
 # init_sl_fit help, ?init_sl_fit), but the failure event hazard is what is 
 # needed for the surv_tmle function)
-sl_fit <- init_sl_fit(
+sl_fit <- my_init_sl_fit(
     T_tilde = constant_hazard$time, 
     Delta = as.numeric(constant_hazard$event),
     A = as.numeric(constant_hazard$ARM),
@@ -177,10 +181,10 @@ results$estimates %>%
 For the constant\_hazard data.frame the censoring event was generated from a Kaplan-Meier fit of the observed, non-informative censoring pattern in the mock LEADER data. To see the behaviour of estimators in the case of informative censoring, we analyze the informative\_censoring data.frame
 
 ```{r informative censoring}
-# load mock LEADER data with simulated outcomes from a simple constant hazard 
-# and with informative censoring. The data-generating process is recorded in 
-# data-raw/simulate_data.R
-informative_censoring <- novo.nordisk::informative_censoring
+# informative_censoring contains covariates from a permuted subset of LEADER
+# data along with simulated outcomes with informative right-censoring generated
+# using "data_raw/simulate_data.R"
+head(informative_censoring)
 
 # target time: 104 weeks is the end of year 2
 targets <- 104
@@ -224,9 +228,8 @@ results$estimates <- tibble(t = round(km_est$time, 1)) %>%
 sl_lib_g <- c("SL.glm")
 sl_lib_censor <- c("SL.mean", "cens_glm", "SL.glmnet", "SL.rpartPrune")
 
-SL.misspec <- novo.nordisk:::simple_misspec
-SL.correct <- novo.nordisk:::correct_infcens
-cens_glm <- novo.nordisk:::cens_glm
+SL.misspec <- simple_misspec
+SL.correct <- correct_infcens
 
 # Exclude SL.xgboost and SL.polymars for shorter compute time, use SL.misspec or 
 # SL.correct to see g-computation/TMLE performance using misspecified or correctly
@@ -246,7 +249,7 @@ informative_censoring <- informative_censoring %>%
 # get SuperLearner estimate for failure hazard and cumulative censoring 
 # probability. See ?init_sl_fit for other returned values, but the failure event
 # hazards and censoring probabilities are needed for the surv_tmle function)
-sl_fit <- init_sl_fit(
+sl_fit <- my_init_sl_fit(
     T_tilde = informative_censoring$time, 
     Delta = as.numeric(informative_censoring$event),
     A = as.numeric(informative_censoring$ARM),

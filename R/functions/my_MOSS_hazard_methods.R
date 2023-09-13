@@ -1,4 +1,5 @@
 #### must define in foreach environment?
+library(MOSS)
 
 MOSS_mods <- new.env()
 
