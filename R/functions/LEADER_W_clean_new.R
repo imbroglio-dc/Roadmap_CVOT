@@ -59,7 +59,7 @@ dplyr::mutate(CVRISK = CVRISK == "High", # ok, cvrisk no missingness
                                levels = c("Adults (below 65)", "Adults 65-74",
                                           "Adults 75-84", "Adults 85 or Older"),
                                labels = c("<65", "65-74", "75-84", ">=85"))) %>%
-    mutate_all(~na_if(., "")) %>%
+    mutate(across(where(is.character), ~na_if(., ""))) %>%
     mutate_at(vars(starts_with("RNF"), starts_with("RENF")),
               ~factor(., ordered = T,
                       levels = c("Normal (EGFR>=90)", "Mild (EGFR<90)",
